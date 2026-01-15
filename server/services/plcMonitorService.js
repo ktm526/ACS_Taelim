@@ -4,13 +4,13 @@
  * - 다른 서비스에서 require 후 현재값 조회/구독 가능
  *
  * 요구사항:
- * - 6000~6021: bit 타입 (기본: Coils / FC01)
+ * - 6000~6021: word(16bit)로 읽고, 6000.0~6000.F 형태로 bit 분해해서 사용
  * - 6030~6099: word 타입 (기본: Holding Registers / FC03)
  *
  * 환경변수:
  * - MODBUS_HOST, MODBUS_PORT, MODBUS_UNIT_ID
  * - PLC_POLL_MS (default: 1000)
- * - PLC_BIT_MODE: "coils" | "discrete_inputs" (default: coils)
+ * - PLC_BIT_MODE: "word_holding" | "word_input" | "coils" | "discrete_inputs" (default: word_holding)
  * - PLC_WORD_MODE: "holding" | "input" (default: holding)
  */
 
@@ -22,7 +22,7 @@ const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
 const UNIT_ID = Number.parseInt(process.env.MODBUS_UNIT_ID || "1", 10);
 const POLL_MS = Number.parseInt(process.env.PLC_POLL_MS || "1000", 10);
 
-const BIT_MODE = (process.env.PLC_BIT_MODE || "coils").toLowerCase(); // coils | discrete_inputs
+const BIT_MODE = (process.env.PLC_BIT_MODE || "word_holding").toLowerCase(); // word_holding | word_input | coils | discrete_inputs
 const WORD_MODE = (process.env.PLC_WORD_MODE || "holding").toLowerCase(); // holding | input
 
 const BIT_START = 6000;
@@ -47,24 +47,47 @@ const state = {
   connected: false,
   lastPollAt: null,
   lastError: null,
-  bits: new Map(), // addr -> boolean
+  bitWords: new Map(), // addr(6000~6021) -> 0..65535
   words: new Map(), // addr -> number
 };
 
 function snapshot() {
+  // 6000~6021: word -> (0~F bit) 분해
+  const bitBlocks = [];
+  const bitDot = {};
+  for (let addr = BIT_START; addr <= BIT_END; addr++) {
+    const value = Number(state.bitWords.get(addr) ?? 0);
+    const v16 = Number.isFinite(value) ? (value & 0xffff) : 0;
+    const bits = [];
+    for (let b = 0; b < 16; b++) {
+      const on = (v16 & (1 << b)) !== 0 ? 1 : 0; // .0 = LSB, .F = MSB
+      bits.push(on);
+      bitDot[`${addr}.${b.toString(16).toUpperCase()}`] = on;
+    }
+    bitBlocks.push({
+      addr,
+      value: v16,
+      hex: "0x" + v16.toString(16).toUpperCase().padStart(4, "0"),
+      bits, // index 0..15 => .0..F
+    });
+  }
+
   return {
     connected: state.connected,
     lastPollAt: state.lastPollAt,
     lastError: state.lastError,
-    bits: Object.fromEntries(state.bits.entries()),
+    bitWords: Object.fromEntries(state.bitWords.entries()),
     words: Object.fromEntries(state.words.entries()),
+    bitBlocks,
+    bitDot,
   };
 }
 
-function setBitsFromArray(arr) {
+function setBitWordsFromArray(arr) {
   for (let i = 0; i < BIT_QTY; i++) {
     const addr = BIT_START + i;
-    state.bits.set(addr, Boolean(arr?.[i]));
+    const v = arr?.[i];
+    state.bitWords.set(addr, typeof v === "number" ? v : Number(v));
   }
 }
 
@@ -105,13 +128,22 @@ async function ensureConnected() {
   }
 }
 
-async function readBits() {
-  if (BIT_MODE === "discrete_inputs") {
-    const r = await client.readDiscreteInputs(BIT_START, BIT_QTY);
+async function readBitWords() {
+  if (BIT_MODE === "word_input") {
+    const r = await client.readInputRegisters(BIT_START, BIT_QTY);
     return r?.data ?? [];
   }
-  // default coils
-  const r = await client.readCoils(BIT_START, BIT_QTY);
+  if (BIT_MODE === "coils") {
+    const r = await client.readCoils(BIT_START, BIT_QTY);
+    // coils로 읽는 경우, true/false를 0/1로 저장 (호환)
+    return (r?.data ?? []).map((b) => (b ? 1 : 0));
+  }
+  if (BIT_MODE === "discrete_inputs") {
+    const r = await client.readDiscreteInputs(BIT_START, BIT_QTY);
+    return (r?.data ?? []).map((b) => (b ? 1 : 0));
+  }
+  // default: word_holding
+  const r = await client.readHoldingRegisters(BIT_START, BIT_QTY);
   return r?.data ?? [];
 }
 
@@ -129,23 +161,23 @@ async function pollOnce() {
   if (inFlight) return;
   inFlight = true;
 
-  const prevBits = new Map(state.bits);
+  const prevBitWords = new Map(state.bitWords);
   const prevWords = new Map(state.words);
 
   try {
     const ok = await ensureConnected();
     if (!ok) return;
 
-    const bitsArr = await readBits();
+    const bitWordsArr = await readBitWords();
     const wordsArr = await readWords();
 
-    setBitsFromArray(bitsArr);
+    setBitWordsFromArray(bitWordsArr);
     setWordsFromArray(wordsArr);
 
     state.lastPollAt = new Date();
     state.lastError = null;
 
-    const changedBits = diffMaps(prevBits, state.bits);
+    const changedBits = diffMaps(prevBitWords, state.bitWords);
     const changedWords = diffMaps(prevWords, state.words);
     if (changedBits.length || changedWords.length) {
       events.emit("change", { bits: changedBits, words: changedWords, at: state.lastPollAt });
@@ -185,13 +217,23 @@ function stop() {
 
 // getters (다른 서비스에서 활용)
 function getBit(addr) {
-  return state.bits.get(Number(addr));
+  // "6000.A" 형태 지원
+  if (typeof addr === "string" && addr.includes(".")) {
+    const [w, b] = addr.split(".");
+    const wa = Number(w);
+    const bi = Number.parseInt(b, 16);
+    const v = Number(state.bitWords.get(wa) ?? 0) & 0xffff;
+    return ((v & (1 << bi)) !== 0);
+  }
+  // addr만 주면 word 값을 반환 (6000~6021)
+  return state.bitWords.get(Number(addr));
 }
 function getWord(addr) {
   return state.words.get(Number(addr));
 }
 function getBits() {
-  return Object.fromEntries(state.bits.entries());
+  // 6000~6021의 word 값 반환
+  return Object.fromEntries(state.bitWords.entries());
 }
 function getWords() {
   return Object.fromEntries(state.words.entries());
