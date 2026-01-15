@@ -72,8 +72,16 @@ export default function ConnectionInfoTab() {
                     render: (bits) => (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {(bits ?? []).map((b, idx) => (
-                          <Tag key={idx} color={b ? "blue" : "default"}>
-                            {idx.toString(16).toUpperCase()}:{b}
+                          <Tag
+                            key={idx}
+                            color={b ? "blue" : "default"}
+                            style={{
+                              marginInlineEnd: 0,
+                              opacity: b ? 1 : 0.6,
+                              borderStyle: b ? "solid" : "dashed",
+                            }}
+                          >
+                            {idx.toString(16).toUpperCase()}
                           </Tag>
                         ))}
                       </div>
