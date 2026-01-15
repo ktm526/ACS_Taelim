@@ -777,6 +777,7 @@ export default function Canvas() {
         onClose={() => setPlcEditorOpen(false)}
         apiBase={CORE}
         stations={safeParse(selMap?.stations).stations ?? []}
+        map={selMap}
       />
     </>
   );

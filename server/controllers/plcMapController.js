@@ -15,7 +15,6 @@ exports.list = async (req, res) => {
       where[Op.or] = [
         { amr_station: { [Op.like]: `%${q}%` } },
         { mani_id: { [Op.like]: `%${q}%` } },
-        { description: { [Op.like]: `%${q}%` } },
       ];
     }
 
@@ -40,7 +39,7 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { id, amr_station, mani_id = null, class: cls, product_type = null, description = null } = req.body;
+    const { id, amr_station, mani_id = null, class: cls, product_type = null, bypass = false } = req.body;
     if (id == null) return res.status(400).json({ message: 'id(plc bit) is required' });
     if (!amr_station) return res.status(400).json({ message: 'amr_station is required' });
     if (!cls) return res.status(400).json({ message: 'class is required' });
@@ -51,7 +50,7 @@ exports.create = async (req, res) => {
       mani_id,
       class: cls,
       product_type: product_type == null ? null : Number(product_type),
-      description,
+      bypass: cls === '연마기' ? (Number.isFinite(Number(bypass)) ? Number(bypass) : 0) : 0,
     });
     res.status(201).json(row);
   } catch (e) {
@@ -69,6 +68,8 @@ exports.update = async (req, res) => {
     const patch = { ...req.body };
     if (patch.id != null) delete patch.id; // pk 변경 방지
     if (patch.product_type != null) patch.product_type = Number(patch.product_type);
+    if (patch.class && patch.class !== '연마기') patch.bypass = 0;
+    if (patch.bypass != null) patch.bypass = Number.isFinite(Number(patch.bypass)) ? Number(patch.bypass) : 0;
     await row.update(patch);
     res.json(row);
   } catch (e) {

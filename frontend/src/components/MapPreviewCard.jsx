@@ -33,6 +33,7 @@ export default function MapPreviewCard({ map }) {
   const updateCanvasSize = useCallback(() => {
     if (!containerRef.current || !canvasRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
     const dpr = window.devicePixelRatio || 1;
     const c = canvasRef.current;
     c.width = rect.width * dpr;
@@ -48,14 +49,18 @@ export default function MapPreviewCard({ map }) {
       ...(stations ?? []).map(({ x, y }) => ({ x, y })),
       ...(normalPoints ?? []),
     ];
-    if (!pts.length) return;
-    const minX = Math.min(...pts.map((p) => p.x));
-    const maxX = Math.max(...pts.map((p) => p.x));
-    const minY = Math.min(...pts.map((p) => p.y));
-    const maxY = Math.max(...pts.map((p) => p.y));
+    const valid = pts
+      .map((p) => ({ x: Number(p?.x), y: Number(p?.y) }))
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (!valid.length) return;
+    const minX = Math.min(...valid.map((p) => p.x));
+    const maxX = Math.max(...valid.map((p) => p.x));
+    const minY = Math.min(...valid.map((p) => p.y));
+    const maxY = Math.max(...valid.map((p) => p.y));
     const w = Math.max(maxX - minX, 0.01);
     const h = Math.max(maxY - minY, 0.01);
     const rect = containerRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
     const sf = Math.max(0.1, Math.min(rect.width / w, rect.height / h) * 0.9);
     setScaleFactor(sf);
     setScale(1);
@@ -70,6 +75,18 @@ export default function MapPreviewCard({ map }) {
     initViewport();
     window.addEventListener("resize", updateCanvasSize);
     return () => window.removeEventListener("resize", updateCanvasSize);
+  }, [updateCanvasSize, initViewport]);
+
+  // 모달/레이아웃 변화로 컨테이너 크기가 나중에 잡히는 케이스 대응
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      updateCanvasSize();
+      initViewport();
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
   }, [updateCanvasSize, initViewport]);
 
   useEffect(() => {
@@ -147,7 +164,8 @@ export default function MapPreviewCard({ map }) {
   const onMouseMove = (e) => {
     if (!dragging) return;
     const pos = getMouse(e);
-    setOffset((o) => ({ x: o.x + (pos.x - last.x), y: o.y + (pos.y - last.y) }));
+    // 메인 캔버스와 동일하게 Y축 패닝 방향을 맞춤(화면 좌표계 ↔ 월드 좌표계 반전 보정)
+    setOffset((o) => ({ x: o.x + (pos.x - last.x), y: o.y - (pos.y - last.y) }));
     setLast(pos);
   };
   const onMouseUp = () => setDragging(false);
@@ -157,8 +175,10 @@ export default function MapPreviewCard({ map }) {
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     const ns = Math.max(0.1, Math.min(scale * factor, 80));
     const ratio = ns / scale;
+    const h = containerRef.current?.getBoundingClientRect().height || 0;
     setScale(ns);
-    setOffset((o) => ({ x: o.x * ratio + pos.x * (1 - ratio), y: o.y * ratio + pos.y * (1 - ratio) }));
+    // 메인 캔버스와 동일하게 Y기준점을 (h - pos.y)로 보정
+    setOffset((o) => ({ x: o.x * ratio + pos.x * (1 - ratio), y: o.y * ratio + (h - pos.y) * (1 - ratio) }));
   };
 
   return (

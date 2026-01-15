@@ -14,7 +14,7 @@
   "dependencies": {
     "axios": "^1.9.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "js-yaml": "^4.1.0",
     "modbus-serial": "^8.0.21-no-serial-port",

@@ -1,9 +1,10 @@
 import React from "react";
 import { ConfigProvider, Tabs } from "antd";
-import { ControlOutlined, KeyOutlined, SettingOutlined } from "@ant-design/icons";
-import AmrControlPanel from "./AmrControlPanel";
+import { KeyOutlined, MonitorOutlined, SettingOutlined } from "@ant-design/icons";
 import GeneralSettings from "./GeneralSettings";
 import PasswordSettings from "./PasswordSettings";
+import SignalMonitorTab from "./SignalMonitorTab";
+import ConnectionInfoTab from "./ConnectionInfoTab";
 
 export default function MiscSettings() {
   const tabItems = [
@@ -18,16 +19,6 @@ export default function MiscSettings() {
       children: <PasswordSettings />
     },
     {
-      key: 'amr-control',
-      label: (
-        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ControlOutlined />
-          AMR 제어
-        </span>
-      ),
-      children: <AmrControlPanel />
-    },
-    {
       key: 'general',
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -36,6 +27,26 @@ export default function MiscSettings() {
         </span>
       ),
       children: <GeneralSettings />
+    },
+    {
+      key: 'connection',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <MonitorOutlined />
+          연결 정보
+        </span>
+      ),
+      children: <ConnectionInfoTab />
+    },
+    {
+      key: 'signals',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <MonitorOutlined />
+          신호 상태 모니터
+        </span>
+      ),
+      children: <SignalMonitorTab />
     }
   ];
 
@@ -83,7 +94,7 @@ export default function MiscSettings() {
           }}
         >
           <Tabs
-            defaultActiveKey="password"
+            defaultActiveKey="general"
             items={tabItems}
             type="line"
             size="large"

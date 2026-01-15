@@ -1,141 +1,56 @@
-// src/components/SignalMonitor.jsx
-import React, { useState } from "react";
-import {
-  Card,
-  Descriptions,
-  Badge,
-  Spin,
-  Alert,
-  Space,
-  Divider,
-  Button,
-} from "antd";
+import React from "react";
+import { Card, Descriptions, Spin, Alert, Button } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { useApiClient } from "@/hooks/useApiClient";
 
-const API = import.meta.env.VITE_CORE_BASE_URL;
-const THRESHOLD = 5000; // 5초
+export default function GeneralSettings() {
+  const api = useApiClient();
 
-// Badge.status → {연결없음, 연결, 살아있음, 끊김} 매핑
-const getStatus = (type, info) => {
-  // 개편 이후 /api/health/signals 는 { amr: { [name]: boolean } } 만 반환
-  if (type === "amr") {
-    return info ? "success" : "default";
-  }
-};
-
-export default function SignalMonitor() {
-  const qc = useQueryClient();
-  const [selected, setSelected] = useState({ type: null, key: null });
-
-  // 요약
-  const { data, error, isLoading, refetch } = useQuery({
-    queryKey: ["signals"],
+  // Settings (PLC → DB) 조회
+  const settingsQ = useQuery({
+    queryKey: ["settings"],
     queryFn: async () => {
-      const res = await fetch(`${API}/api/health/signals`);
-      if (!res.ok) throw new Error("네트워크 오류");
-      return res.json();
+      const res = await api.get("/api/settings");
+      if (!res?.success) throw new Error(res?.message || "설정 조회 실패");
+      return res.data;
     },
-    refetchInterval: 2000,
+    refetchInterval: 1000,
   });
-
-  // 상세
-  const detail = useQuery({
-    queryKey: ["signalDetail", selected],
-    queryFn: async () => {
-      const { type, key } = selected;
-      const res = await fetch(`${API}/api/health/signals/${type}/${key}`);
-      if (!res.ok) throw new Error("상세 조회 오류");
-      return res.json();
-    },
-    enabled: !!selected.type && !!selected.key,
-    refetchInterval: 2000,
-  });
-
-  // 재연결 뮤테이션
-  const reconnectM = useMutation({
-    mutationFn: async () => {
-      const { type, key } = selected;
-      await fetch(`${API}/api/health/signals/${type}/${key}/reconnect`, {
-        method: "POST",
-      });
-    },
-    onSuccess: () => {
-      refetch();
-      detail.refetch();
-    },
-  });
-
-  const renderBadges = (items, type) => {
-    if (!items || typeof items !== "object") {
-      return <span style={{ opacity: 0.7 }}>데이터 없음</span>;
-    }
-    return (
-      <Space split={<Divider type="vertical" />}>
-        {Object.entries(items).map(([key, info]) => (
-        <Space key={key}>
-          <Badge
-            status={getStatus(type, info)}
-            text={key}
-            onClick={() => setSelected({ type, key })}
-            style={{ cursor: "pointer" }}
-          />
-          <Button
-            type="text"
-            icon={<ReloadOutlined />}
-            size="small"
-            onClick={() => {
-              setSelected({ type, key });
-              reconnectM.mutate();
-            }}
-          />
-        </Space>
-        ))}
-      </Space>
-    );
-  };
 
   return (
-    <Card title="신호 상태 모니터" bordered>
-      {isLoading && <Spin tip="로딩 중..." />}
-      {error && (
-        <Alert
-          type="error"
-          message="신호 로드 실패"
-          description={error.message}
-        />
+    <Card
+      title="설정값(PLC→DB)"
+      bordered
+      extra={
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => settingsQ.refetch()}
+          disabled={settingsQ.isLoading}
+        >
+          새로고침
+        </Button>
+      }
+    >
+      {settingsQ.isLoading && <Spin tip="설정 로딩 중..." />}
+      {settingsQ.error && (
+        <Alert type="error" message="설정 조회 실패" description={settingsQ.error.message} />
       )}
-      {data && (
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
-          <Descriptions
-            bordered
-            size="small"
-            column={1}
-            labelStyle={{ width: 120 }}
-          >
-            <Descriptions.Item label="AMR">
-              {renderBadges(data.amr, "amr")}
-            </Descriptions.Item>
-          </Descriptions>
-          <Card title="상세 정보" size="small">
-            {!selected.type && (
-              <Alert message="항목을 클릭하세요" type="info" />
-            )}
-            {detail.isLoading && <Spin tip="조회 중..." />}
-            {detail.error && (
-              <Alert
-                type="error"
-                message="상세 조회 실패"
-                description={detail.error.message}
-              />
-            )}
-            {detail.data && (
-              <pre style={{ margin: 0 }}>
-                {JSON.stringify(detail.data, null, 2)}
-              </pre>
-            )}
-          </Card>
-        </Space>
+      {settingsQ.data && (
+        <Descriptions bordered size="small" column={1} labelStyle={{ width: 260 }}>
+          <Descriptions.Item label="기준 연마기 PLC ID">
+            {settingsQ.data.reference_grinder ?? "-"}
+          </Descriptions.Item>
+          <Descriptions.Item label="연마기 신호 활성화 후 대기 시간">
+            {settingsQ.data.grinder_wait_ms ?? "-"}
+          </Descriptions.Item>
+          <Descriptions.Item label="배터리 충전 필요 기준">
+            {settingsQ.data.charge_threshold_percent ?? "-"}
+          </Descriptions.Item>
+          <Descriptions.Item label="배터리 충전 완료 기준">
+            {settingsQ.data.charge_complete_percent ?? "-"}
+          </Descriptions.Item>
+        </Descriptions>
       )}
     </Card>
   );

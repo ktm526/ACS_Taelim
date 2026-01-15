@@ -23,6 +23,8 @@ console.log('Loading plcMapRoutes...');
 app.use('/api/plc-maps', require('./routes/plcMapRoutes'));
 console.log('Loading settingsRoutes...');
 app.use('/api/settings', require('./routes/settingsRoutes'));
+console.log('Loading plcRoutes...');
+app.use('/api/plc', require('./routes/plcRoutes'));
 console.log('Loading healthRoutes...');
 app.use('/api/health', require('./routes/healthRoutes'));
 console.log('Loading configRoutes...');
@@ -72,6 +74,17 @@ app.use(express.static(path.join(__dirname, 'dist')));
     };
     await ensureRobotColumns();
 
+    /* 0-3) 기존 PLCMaps 테이블에 bypass 컬럼 추가 */
+    const ensurePLCMapColumns = async () => {
+      await qi.addColumn('PLCMaps', 'bypass', {
+        // 숫자 bypass 값을 저장 (SQLite는 타입이 유연)
+        type: require('sequelize').DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      }).catch(() => { });
+    };
+    await ensurePLCMapColumns();
+
     /* 1) 실제 테이블 자동 생성/변경 ----------------------- */
     //await sequelize.sync({ force: true });
     await sequelize.sync();
@@ -83,6 +96,8 @@ app.use(express.static(path.join(__dirname, 'dist')));
     require('./services/amrMonitorService');
     console.log('Loading settingsService...');
     require('./services/settingsService');
+    console.log('Loading plcMonitorService...');
+    require('./services/plcMonitorService');
     // dispatcher/taskExecutor/robotJack/robotMotion/robotMap 기능은 제거됨
 
     /* 3) React Router 지원을 위한 catch-all 라우트 ─── */
