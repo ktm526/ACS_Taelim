@@ -3,7 +3,7 @@
 const net = require('net');
 const { Op } = require('sequelize');
 const Robot = require('../models/Robot');
-const { logConnChange } = require('./connectionLogger');
+//const { //logConnChange } = require('./connectionLogger');
 
 // AMR Push Monitoring Service
 // - Listens on TCP port for robot push data
@@ -278,14 +278,14 @@ function handlePush(sock, ip) {
         sock.destroy();
         sockets.delete(ip);
         await markDisconnectedByIp(ip);
-        logConnChange(`AMR:${ip}`, false);
+        //logConnChange(`AMR:${ip}`, false);
     });
 
     sock.on('close', () => {
         console.warn(`[AMR] connection closed ${ip}`);
         sockets.delete(ip);
         markDisconnectedByIp(ip);
-        logConnChange(`AMR:${ip}`, false);
+        //logConnChange(`AMR:${ip}`, false);
     });
 }
 
@@ -317,7 +317,7 @@ async function connect(ip) {
         console.log(`[AMR] connected to ${ip} (AMR: ${amrName}, local port: ${localPort})`);
         sockets.set(ip, sock);
         sock.setTimeout(0);
-        logConnChange(`AMR:${ip}`, true);
+        //logConnChange(`AMR:${ip}`, true);
         handlePush(sock, ip);
     });
 
@@ -326,7 +326,7 @@ async function connect(ip) {
         sock.destroy();
         sockets.delete(ip);
         await markDisconnectedByIp(ip);
-        logConnChange(`AMR:${ip}`, false);
+        //logConnChange(`AMR:${ip}`, false);
     });
 }
 
@@ -362,7 +362,7 @@ setInterval(async () => {
             lastTimeUpdate.delete(name); // time 업데이트 시간 맵도 정리
             // DB 상태 업데이트
             await markDisconnectedByName(name);
-            logConnChange(`AMR:${name}`, false, { robot_name: name });
+            //logConnChange(`AMR:${name}`, false, { robot_name: name });
 
             // 해당 로봇의 IP로 소켓도 강제 종료 → 재접속 유도
             try {
