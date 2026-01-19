@@ -1,9 +1,12 @@
 const DeviceInStocker = require('../models/DeviceInStocker');
 const DeviceGrinder = require('../models/DeviceGrinder');
+const DeviceOutStocker = require('../models/DeviceOutStocker');
 
 const SLOT_SIDES = ['L', 'R'];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
 const GRINDER_INDEXES = [1, 2, 3, 4, 5, 6];
+const OUT_SIDES = ['L1', 'L2', 'R1', 'R2'];
+const OUT_ROWS = [1, 2, 3, 4, 5, 6];
 const POSITIONS = ['L', 'R'];
 const SIGNAL_KEYS = [
   'input_ready_id',
@@ -70,6 +73,25 @@ function buildDefaultGrinders() {
       positions,
     };
   });
+}
+
+function buildDefaultOutStocker() {
+  const sides = {};
+  for (const side of OUT_SIDES) {
+    const rows = {};
+    for (const row of OUT_ROWS) {
+      rows[row] = {
+        load_ready_id: null,
+        jig_state_id: null,
+        model_no_id: null,
+      };
+    }
+    sides[side] = {
+      bypass_id: null,
+      rows,
+    };
+  }
+  return sides;
 }
 
 function safeParseJson(value, fallback) {
@@ -139,6 +161,28 @@ function normalizeGrinders(input) {
   });
 }
 
+function normalizeOutStocker(input) {
+  const base = buildDefaultOutStocker();
+  if (!input || typeof input !== 'object') return base;
+  for (const side of OUT_SIDES) {
+    const sourceSide = input[side] || {};
+    const rows = {};
+    for (const row of OUT_ROWS) {
+      const sourceRow = (sourceSide.rows && sourceSide.rows[row]) || {};
+      rows[row] = {
+        load_ready_id: normalizeText(sourceRow.load_ready_id),
+        jig_state_id: normalizeText(sourceRow.jig_state_id),
+        model_no_id: normalizeText(sourceRow.model_no_id),
+      };
+    }
+    base[side] = {
+      bypass_id: normalizeText(sourceSide.bypass_id),
+      rows,
+    };
+  }
+  return base;
+}
+
 async function ensureInstocker() {
   const [row] = await DeviceInStocker.findOrCreate({
     where: { id: 1 },
@@ -149,6 +193,14 @@ async function ensureInstocker() {
 
 async function ensureGrinder() {
   const [row] = await DeviceGrinder.findOrCreate({
+    where: { id: 1 },
+    defaults: { id: 1 },
+  });
+  return row;
+}
+
+async function ensureOutStocker() {
+  const [row] = await DeviceOutStocker.findOrCreate({
     where: { id: 1 },
     defaults: { id: 1 },
   });
@@ -234,6 +286,42 @@ exports.updateGrinder = async (req, res) => {
     });
   } catch (e) {
     console.error('[Device.updateGrinder]', e);
+    res.status(400).json({ success: false, message: e.message });
+  }
+};
+
+exports.getOutStocker = async (req, res) => {
+  try {
+    const row = await ensureOutStocker();
+    const sides = safeParseJson(row.sides, buildDefaultOutStocker());
+    res.json({
+      success: true,
+      data: {
+        id: row.id,
+        sides: normalizeOutStocker(sides),
+      },
+    });
+  } catch (e) {
+    console.error('[Device.getOutStocker]', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+exports.updateOutStocker = async (req, res) => {
+  try {
+    const row = await ensureOutStocker();
+    const payload = req.body || {};
+    const sides = normalizeOutStocker(payload.sides);
+    await row.update({ sides: JSON.stringify(sides) });
+    res.json({
+      success: true,
+      data: {
+        id: row.id,
+        sides,
+      },
+    });
+  } catch (e) {
+    console.error('[Device.updateOutStocker]', e);
     res.status(400).json({ success: false, message: e.message });
   }
 };

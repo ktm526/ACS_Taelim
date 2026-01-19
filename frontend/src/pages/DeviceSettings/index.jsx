@@ -8,6 +8,13 @@ const SLOT_SIDES = ["L", "R"];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
 const GRINDER_INDEXES = [1, 2, 3, 4, 5, 6];
 const POSITIONS = ["L", "R"];
+const OUT_SIDES = ["L1", "L2", "R1", "R2"];
+const OUT_ROWS = [1, 2, 3, 4, 5, 6];
+const OUT_FIELDS = [
+  { key: "load_ready_id", label: "적재 가능" },
+  { key: "jig_state_id", label: "공지그 상태" },
+  { key: "model_no_id", label: "모델 번호" },
+];
 const SIGNALS = [
   { key: "input_ready_id", label: "투입 가능" },
   { key: "output_ready_id", label: "배출 가능" },
@@ -64,6 +71,25 @@ function createDefaultGrinders() {
   });
 }
 
+function createDefaultOutStocker() {
+  const sides = {};
+  OUT_SIDES.forEach((side) => {
+    const rows = {};
+    OUT_ROWS.forEach((row) => {
+      rows[row] = {
+        load_ready_id: null,
+        jig_state_id: null,
+        model_no_id: null,
+      };
+    });
+    sides[side] = {
+      bypass_id: null,
+      rows,
+    };
+  });
+  return sides;
+}
+
 function normalizeText(value) {
   if (value === null || value === undefined) return null;
   const text = String(value);
@@ -109,8 +135,10 @@ export default function DeviceSettings() {
   const [loading, setLoading] = useState(true);
   const [savingInstocker, setSavingInstocker] = useState(false);
   const [savingGrinder, setSavingGrinder] = useState(false);
+  const [savingOutstocker, setSavingOutstocker] = useState(false);
   const [instockerSavedAt, setInstockerSavedAt] = useState(null);
   const [grinderSavedAt, setGrinderSavedAt] = useState(null);
+  const [outstockerSavedAt, setOutstockerSavedAt] = useState(null);
   const [plcValues, setPlcValues] = useState({});
   const fileInputRef = useRef(null);
   const [instocker, setInstocker] = useState({
@@ -120,6 +148,9 @@ export default function DeviceSettings() {
   });
   const [grinder, setGrinder] = useState({
     grinders: createDefaultGrinders(),
+  });
+  const [outstocker, setOutstocker] = useState({
+    sides: createDefaultOutStocker(),
   });
 
   const slotKeys = useMemo(() => {
@@ -146,9 +177,10 @@ export default function DeviceSettings() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [instockerRes, grinderRes] = await Promise.all([
+        const [instockerRes, grinderRes, outstockerRes] = await Promise.all([
           apiClient.get("/api/devices/instocker"),
           apiClient.get("/api/devices/grinder"),
+          apiClient.get("/api/devices/outstocker"),
         ]);
         if (instockerRes?.data) {
           setInstocker({
@@ -160,6 +192,11 @@ export default function DeviceSettings() {
         if (grinderRes?.data) {
           setGrinder({
             grinders: grinderRes.data.grinders || createDefaultGrinders(),
+          });
+        }
+        if (outstockerRes?.data) {
+          setOutstocker({
+            sides: outstockerRes.data.sides || createDefaultOutStocker(),
           });
         }
       } catch (error) {
@@ -198,8 +235,18 @@ export default function DeviceSettings() {
         });
       });
     });
+    OUT_SIDES.forEach((side) => {
+      const sideData = outstocker.sides?.[side] || {};
+      pushId(sideData.bypass_id);
+      OUT_ROWS.forEach((row) => {
+        const rowData = sideData.rows?.[row] || {};
+        OUT_FIELDS.forEach((field) => {
+          pushId(rowData?.[field.key]);
+        });
+      });
+    });
     return Array.from(new Set(ids));
-  }, [instocker, grinder, slotKeys]);
+  }, [instocker, grinder, outstocker, slotKeys]);
 
   useEffect(() => {
     let isActive = true;
@@ -281,6 +328,36 @@ export default function DeviceSettings() {
     }));
   };
 
+  const handleOutstockerSideChange = (side, field, value) => {
+    setOutstocker((prev) => ({
+      sides: {
+        ...prev.sides,
+        [side]: {
+          ...prev.sides?.[side],
+          [field]: normalizeText(value),
+        },
+      },
+    }));
+  };
+
+  const handleOutstockerRowChange = (side, row, field, value) => {
+    setOutstocker((prev) => ({
+      sides: {
+        ...prev.sides,
+        [side]: {
+          ...prev.sides?.[side],
+          rows: {
+            ...(prev.sides?.[side]?.rows || {}),
+            [row]: {
+              ...(prev.sides?.[side]?.rows?.[row] || {}),
+              [field]: normalizeText(value),
+            },
+          },
+        },
+      },
+    }));
+  };
+
   const saveInstocker = async () => {
     setSavingInstocker(true);
     try {
@@ -309,11 +386,31 @@ export default function DeviceSettings() {
     }
   };
 
+  const saveOutstocker = async () => {
+    setSavingOutstocker(true);
+    try {
+      await apiClient.put("/api/devices/outstocker", outstocker);
+      message.success("아웃스토커 설정이 저장되었습니다.");
+      setOutstockerSavedAt(new Date());
+    } catch (error) {
+      console.error("아웃스토커 저장 실패:", error);
+      message.error("아웃스토커 설정 저장에 실패했습니다.");
+    } finally {
+      setSavingOutstocker(false);
+    }
+  };
+
   const renderValueTag = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return <Tag color="default">-</Tag>;
     }
     return <Tag color="blue">{String(value)}</Tag>;
+  };
+
+  const getOutSideLabel = (side) => {
+    const prefix = side.startsWith("L") ? "L" : "R";
+    const idx = side.slice(1);
+    return `${prefix}-${idx}측`;
   };
 
   const buildCsvRows = () => {
@@ -406,6 +503,24 @@ export default function DeviceSettings() {
         });
       });
     });
+    OUT_SIDES.forEach((side) => {
+      rows.push([
+        "outstocker_side",
+        side,
+        "bypass_id",
+        outstocker.sides?.[side]?.bypass_id ?? "",
+      ]);
+      OUT_ROWS.forEach((row) => {
+        OUT_FIELDS.forEach((field) => {
+          rows.push([
+            "outstocker_row",
+            `${side}-${row}`,
+            field.key,
+            outstocker.sides?.[side]?.rows?.[row]?.[field.key] ?? "",
+          ]);
+        });
+      });
+    });
     return rows;
   };
 
@@ -435,6 +550,10 @@ export default function DeviceSettings() {
         ...item,
         positions: { ...item.positions },
       })),
+    };
+    const nextOutstocker = {
+      ...outstocker,
+      sides: { ...outstocker.sides },
     };
 
     rows.forEach((row) => {
@@ -476,11 +595,33 @@ export default function DeviceSettings() {
           ...grinderItem.positions[position],
           [field]: normalizedValue,
         };
+      } else if (category === "outstocker_side") {
+        if (!OUT_SIDES.includes(target)) return;
+        nextOutstocker.sides[target] = {
+          ...nextOutstocker.sides[target],
+          [field]: normalizedValue,
+        };
+      } else if (category === "outstocker_row") {
+        const [side, rowText] = String(target).split("-");
+        const row = Number(rowText);
+        if (!OUT_SIDES.includes(side) || !OUT_ROWS.includes(row)) return;
+        const sideData = nextOutstocker.sides?.[side] || {};
+        nextOutstocker.sides[side] = {
+          ...sideData,
+          rows: {
+            ...(sideData.rows || {}),
+            [row]: {
+              ...(sideData.rows?.[row] || {}),
+              [field]: normalizedValue,
+            },
+          },
+        };
       }
     });
 
     setInstocker(nextInstocker);
     setGrinder(nextGrinder);
+    setOutstocker(nextOutstocker);
   };
 
   const handleImportCsv = (file) => {
@@ -709,6 +850,106 @@ export default function DeviceSettings() {
                       </React.Fragment>
                     );
                   })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card
+          title="아웃스토커 설정"
+          extra={
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Button onClick={handleExportCsv}>CSV 내보내기</Button>
+              <Button onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
+              <Button type="primary" onClick={saveOutstocker} loading={savingOutstocker}>
+                저장
+              </Button>
+              {outstockerSavedAt && (
+                <Tag color="green">
+                  저장됨 {outstockerSavedAt.toLocaleTimeString("ko-KR")}
+                </Tag>
+              )}
+            </div>
+          }
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: 16,
+            }}
+          >
+            {OUT_SIDES.map((side) => (
+              <div
+                key={side}
+                style={{
+                  border: "1px solid #e8e8e8",
+                  borderRadius: 8,
+                  padding: 12,
+                  background: "#fff",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 14,
+                    marginBottom: 8,
+                    borderBottom: "1px solid #f0f0f0",
+                    paddingBottom: 8,
+                  }}
+                >
+                  {getOutSideLabel(side)}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "80px 1fr 60px",
+                    gap: 4,
+                    alignItems: "center",
+                    fontSize: 12,
+                    marginBottom: 8,
+                  }}
+                >
+                  <span>bypass</span>
+                  <Input
+                    size="small"
+                    value={outstocker.sides?.[side]?.bypass_id ?? ""}
+                    onChange={(e) => handleOutstockerSideChange(side, "bypass_id", e.target.value)}
+                    placeholder="ID"
+                  />
+                  {renderValueTag(outstocker.sides?.[side]?.bypass_id
+                    ? plcValues?.[outstocker.sides?.[side]?.bypass_id]
+                    : null)}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "90px 1fr 60px",
+                    gap: 4,
+                    alignItems: "center",
+                    fontSize: 12,
+                  }}
+                >
+                  {OUT_ROWS.flatMap((row) =>
+                    OUT_FIELDS.map((field) => {
+                      const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
+                      return (
+                        <React.Fragment key={`${side}-${row}-${field.key}`}>
+                          <span>{`${row}열 ${field.label}`}</span>
+                          <Input
+                            size="small"
+                            value={value ?? ""}
+                            onChange={(e) =>
+                              handleOutstockerRowChange(side, row, field.key, e.target.value)
+                            }
+                            placeholder="ID"
+                          />
+                          {renderValueTag(value ? plcValues?.[value] : null)}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             ))}

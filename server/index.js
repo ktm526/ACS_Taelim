@@ -9,6 +9,7 @@ const app = express();
 // 장치 설정 모델 등록 (sync 전에 로드)
 require('./models/DeviceInStocker');
 require('./models/DeviceGrinder');
+require('./models/DeviceOutStocker');
 
 /* ── ① 공통 미들웨어 ─────────────────────────────── */
 app.use(cors({ origin: '*' }));

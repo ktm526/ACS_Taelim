@@ -1,6 +1,7 @@
 const ModbusRTU = require("modbus-serial");
 const DeviceInStocker = require("../models/DeviceInStocker");
 const DeviceGrinder = require("../models/DeviceGrinder");
+const DeviceOutStocker = require("../models/DeviceOutStocker");
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
@@ -75,15 +76,18 @@ function collectSideTargets(side) {
 }
 
 async function collectIds({ side = "ALL" } = {}) {
-  const [instocker, grinder] = await Promise.all([
+  const [instocker, grinder, outstocker] = await Promise.all([
     DeviceInStocker.findByPk(1),
     DeviceGrinder.findByPk(1),
+    DeviceOutStocker.findByPk(1),
   ]);
 
   const slots = safeParse(instocker?.slots, {});
   const sideSignals = safeParse(instocker?.side_signals, {});
   const grinders = safeParse(grinder?.grinders, []);
   const sides = collectSideTargets(side);
+  const outSides = ["L1", "L2", "R1", "R2"];
+  const outRows = [1, 2, 3, 4, 5, 6];
 
   const ids = [];
   const grinderProductIds = [];
@@ -112,6 +116,17 @@ async function collectIds({ side = "ALL" } = {}) {
       SIGNAL_KEYS.forEach((key) => {
         ids.push(position?.[key]);
       });
+    });
+  });
+
+  // 아웃스토커 신호/제품정보
+  const outSidesData = safeParse(outstocker?.sides, {});
+  outSides.forEach((sideKey) => {
+    const sideData = outSidesData?.[sideKey] || {};
+    ids.push(sideData.bypass_id);
+    outRows.forEach((row) => {
+      const rowData = sideData.rows?.[row] || {};
+      ids.push(rowData.load_ready_id, rowData.jig_state_id, rowData.model_no_id);
     });
   });
 
