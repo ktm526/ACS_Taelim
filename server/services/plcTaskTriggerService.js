@@ -86,6 +86,7 @@ async function collectIds({ side = "ALL" } = {}) {
   const sides = collectSideTargets(side);
 
   const ids = [];
+  const grinderProductIds = [];
 
   // 인스토커 측면 신호
   sides.forEach((s) => {
@@ -104,7 +105,8 @@ async function collectIds({ side = "ALL" } = {}) {
 
   // 연마기 신호/제품정보
   grinders.forEach((gr) => {
-    ids.push(gr?.product_type_id, gr?.bypass_id);
+    grinderProductIds.push(gr?.product_type_id);
+    ids.push(gr?.bypass_id);
     POSITIONS.forEach((pos) => {
       const position = gr?.positions?.[pos] || {};
       SIGNAL_KEYS.forEach((key) => {
@@ -113,19 +115,26 @@ async function collectIds({ side = "ALL" } = {}) {
     });
   });
 
-  return Array.from(
-    new Set(ids.map((v) => (v == null ? null : String(v).trim())).filter(Boolean))
-  );
+  const normalizeList = (list) =>
+    Array.from(
+      new Set(list.map((v) => (v == null ? null : String(v).trim())).filter(Boolean))
+    );
+
+  return {
+    ids: normalizeList(ids),
+    grinderProductIds: normalizeList(grinderProductIds),
+  };
 }
 
 async function writeSignals({ side = "ALL", value = 1 } = {}) {
-  const ids = await collectIds({ side });
-  if (!ids.length) {
+  const { ids, grinderProductIds } = await collectIds({ side });
+  if (!ids.length && !grinderProductIds.length) {
     return { success: false, message: "PLC ID가 없습니다.", written: [] };
   }
 
   const parsed = ids.map(parseId).filter(Boolean);
-  if (!parsed.length) {
+  const grinderParsed = grinderProductIds.map(parseId).filter(Boolean);
+  if (!parsed.length && !grinderParsed.length) {
     return { success: false, message: "유효한 PLC ID가 없습니다.", written: [] };
   }
 
@@ -146,6 +155,18 @@ async function writeSignals({ side = "ALL", value = 1 } = {}) {
       } else {
         wordTargets.add(item.wordAddr);
       }
+    });
+
+    // 연마기 제품종류는 word로 1(또는 reset 시 0) 고정 기록
+    const grinderWordTargets = new Set();
+    grinderParsed.forEach((item) => {
+      if (item.type !== "word") {
+        console.warn(
+          `[PLC Trigger] grinder product_type_id is not word: ${item.key}`
+        );
+        return;
+      }
+      grinderWordTargets.add(item.wordAddr);
     });
 
     for (const [wordAddr, bits] of bitGroups.entries()) {
@@ -177,16 +198,33 @@ async function writeSignals({ side = "ALL", value = 1 } = {}) {
         `[PLC Trigger] word ${wordAddr} write=${value} read=${after} ${ok ? "OK" : "FAIL"}`
       );
     }
+
+    for (const wordAddr of grinderWordTargets) {
+      const writeValue = value ? 1 : 0;
+      await writeWord(client, wordAddr, writeValue);
+      const verify = await client.readHoldingRegisters(wordAddr, 1);
+      const after = Number(verify?.data?.[0] ?? 0);
+      const ok = after === writeValue;
+      console.log(
+        `[PLC Trigger] grinder product word ${wordAddr} write=${writeValue} read=${after} ${
+          ok ? "OK" : "FAIL"
+        }`
+      );
+    }
   } finally {
     try {
       client.close(() => {});
     } catch {}
   }
 
+  const allWritten = [
+    ...parsed.map((item) => item.key),
+    ...grinderParsed.map((item) => item.key),
+  ];
   return {
     success: true,
     message: value ? "테스트 신호를 1로 설정했습니다." : "테스트 신호를 0으로 설정했습니다.",
-    written: parsed.map((item) => item.key),
+    written: allWritten,
   };
 }
 
