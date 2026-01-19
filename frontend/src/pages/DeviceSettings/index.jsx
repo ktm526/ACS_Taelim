@@ -873,39 +873,64 @@ export default function DeviceSettings() {
       children: (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
           {OUT_SIDES.map((side) => (
-            <Card
+            <div
               key={side}
-              size="small"
-              title={getOutSideLabel(side)}
-              style={{ background: "#fafafa" }}
-              styles={{ body: { padding: 12 } }}
+              style={{
+                border: "1px solid #e8e8e8",
+                borderRadius: 8,
+                padding: 12,
+                background: "#fff",
+              }}
             >
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-                <span style={{ fontSize: 12, width: 50 }}>bypass</span>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 8,
+                  borderBottom: "1px solid #f0f0f0",
+                  paddingBottom: 8,
+                }}
+              >
+                {getOutSideLabel(side)}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "70px 1fr 50px",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <span>bypass</span>
                 <Input
                   size="small"
                   value={outstocker.sides?.[side]?.bypass_id ?? ""}
                   onChange={(e) => handleOutstockerSideChange(side, "bypass_id", e.target.value)}
                   placeholder="ID"
-                  style={{ flex: 1 }}
                 />
                 {renderValueTag(outstocker.sides?.[side]?.bypass_id ? plcValues?.[outstocker.sides?.[side]?.bypass_id] : null)}
               </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "40px repeat(3, 1fr)",
+                  gridTemplateColumns: "30px repeat(3, 1fr)",
                   gap: 4,
+                  alignItems: "center",
                   fontSize: 11,
                 }}
               >
-                <div style={{ fontWeight: 600 }}>열</div>
+                <span style={{ fontWeight: 600 }}>#</span>
                 {OUT_FIELDS.map((f) => (
-                  <div key={f.key} style={{ fontWeight: 600, textAlign: "center" }}>{f.label}</div>
+                  <span key={f.key} style={{ fontWeight: 600 }}>{f.label}</span>
                 ))}
                 {OUT_ROWS.map((row) => (
                   <React.Fragment key={row}>
-                    <div style={{ fontWeight: 600, display: "flex", alignItems: "center" }}>{row}</div>
+                    <span style={{ fontWeight: 500 }}>{row}</span>
                     {OUT_FIELDS.map((field) => {
                       const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
                       return (
@@ -915,11 +940,11 @@ export default function DeviceSettings() {
                             value={value ?? ""}
                             onChange={(e) => handleOutstockerRowChange(side, row, field.key, e.target.value)}
                             placeholder="ID"
-                            style={{ flex: 1, fontSize: 11 }}
+                            style={{ flex: 1 }}
                           />
                           <Tag
                             color={value && plcValues?.[value] != null ? "blue" : "default"}
-                            style={{ margin: 0, fontSize: 10, padding: "0 3px", minWidth: 24, textAlign: "center" }}
+                            style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
                           >
                             {value ? plcValues?.[value] ?? "-" : "-"}
                           </Tag>
@@ -929,7 +954,7 @@ export default function DeviceSettings() {
                   </React.Fragment>
                 ))}
               </div>
-            </Card>
+            </div>
           ))}
         </div>
       ),
