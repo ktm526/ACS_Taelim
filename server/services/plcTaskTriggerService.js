@@ -157,10 +157,25 @@ async function writeSignals({ side = "ALL", value = 1 } = {}) {
         next = value ? next | mask : next & ~mask;
       });
       await client.writeRegisters(wordAddr, [next]);
+
+      // 작성 직후 검증 읽기
+      const verify = await client.readHoldingRegisters(wordAddr, 1);
+      const after = Number(verify?.data?.[0] ?? 0) & 0xffff;
+      const ok = after === next;
+      console.log(
+        `[PLC Trigger] word ${wordAddr} write=${next} read=${after} ${ok ? "OK" : "FAIL"}`
+      );
     }
 
     for (const wordAddr of wordTargets) {
       await writeWord(client, wordAddr, value);
+      // 작성 직후 검증 읽기
+      const verify = await client.readHoldingRegisters(wordAddr, 1);
+      const after = Number(verify?.data?.[0] ?? 0);
+      const ok = after === value;
+      console.log(
+        `[PLC Trigger] word ${wordAddr} write=${value} read=${after} ${ok ? "OK" : "FAIL"}`
+      );
     }
   } finally {
     try {
