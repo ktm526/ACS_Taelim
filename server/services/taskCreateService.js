@@ -41,6 +41,17 @@ function normalizeText(value) {
   return text.length ? text : null;
 }
 
+function resolvePlcValue(id) {
+  const key = normalizeText(id);
+  if (!key) return null;
+  if (key.includes(".")) {
+    const on = plc.getBit(key);
+    return typeof on === "boolean" ? (on ? 1 : 0) : null;
+  }
+  const v = plc.getWord(key);
+  return Number.isFinite(Number(v)) ? Number(v) : null;
+}
+
 function isSignalOn(id) {
   const key = normalizeText(id);
   if (!key) return false;
@@ -73,10 +84,12 @@ function getSideSlots(slots, side) {
   return SLOT_INDEXES.map((idx) => {
     const key = `${side}${idx}`;
     const item = slots?.[key] || {};
+    const productTypeValue = resolvePlcValue(item.product_type_id);
     return {
       key,
       index: idx,
       product_type_id: normalizeText(item.product_type_id),
+      product_type_value: productTypeValue,
       amr_pos: normalizeText(item.amr_pos),
       mani_pos: normalizeText(item.mani_pos),
     };
@@ -86,8 +99,9 @@ function getSideSlots(slots, side) {
 function buildAvailableGrinderPositions(grinders) {
   const byProduct = new Map();
   grinders.forEach((grinder, gIdx) => {
-    const productType = normalizeText(grinder?.product_type_id);
-    if (!productType) return;
+    const productTypeValue = resolvePlcValue(grinder?.product_type_id);
+    if (productTypeValue === null) return;
+    const productKey = String(productTypeValue);
     POSITIONS.forEach((pos) => {
       const position = grinder?.positions?.[pos] || {};
       const station = normalizeText(position.amr_pos);
@@ -97,14 +111,14 @@ function buildAvailableGrinderPositions(grinders) {
       const readyId = normalizeText(position.input_ready_id);
       if (!readyId) return;
       if (!isSignalOn(readyId)) return;
-      const list = byProduct.get(productType) || [];
+      const list = byProduct.get(productKey) || [];
       list.push({
         station,
         mani_pos: maniPos,
         grinderIndex: grinder?.index ?? gIdx + 1,
         position: pos,
       });
-      byProduct.set(productType, list);
+      byProduct.set(productKey, list);
     });
   });
   return byProduct;
@@ -123,14 +137,15 @@ async function createTaskForSide(side, config) {
   const availableByProduct = buildAvailableGrinderPositions(config.grinders);
   const slotTargets = [];
   for (const slot of slots) {
-    if (!slot.product_type_id || !slot.mani_pos) {
+    if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) {
       console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락`);
       return;
     }
-    const list = availableByProduct.get(slot.product_type_id) || [];
+    const productKey = String(slot.product_type_value);
+    const list = availableByProduct.get(productKey) || [];
     if (list.length === 0) {
       console.log(
-        `[TaskCreate] ${side}: 제품 ${slot.product_type_id} 투입 가능 위치 부족`
+        `[TaskCreate] ${side}: 제품 ${productKey} 투입 가능 위치 부족`
       );
       return;
     }
