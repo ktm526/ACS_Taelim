@@ -1,5 +1,6 @@
 const ModbusRTU = require("modbus-serial");
 const DeviceInStocker = require("../models/DeviceInStocker");
+const DeviceGrinder = require("../models/DeviceGrinder");
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
@@ -55,22 +56,72 @@ async function writeWord(client, wordAddr, value) {
   await client.writeRegisters(wordAddr, [value]);
 }
 
-async function loadWorkAvailableIds(side) {
-  const instocker = await DeviceInStocker.findByPk(1);
-  const signals = safeParse(instocker?.side_signals, {});
-  if (side === "L" || side === "R") {
-    return [signals?.[side]?.work_available_id].filter(Boolean);
-  }
-  return [
-    signals?.L?.work_available_id,
-    signals?.R?.work_available_id,
-  ].filter(Boolean);
+const SIDES = ["L", "R"];
+const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
+const POSITIONS = ["L", "R"];
+const SIGNAL_KEYS = [
+  "input_ready_id",
+  "output_ready_id",
+  "safe_pos_id",
+  "input_in_progress_id",
+  "input_done_id",
+  "output_in_progress_id",
+  "output_done_id",
+];
+
+function collectSideTargets(side) {
+  if (side === "L" || side === "R") return [side];
+  return SIDES;
 }
 
-async function triggerInstockerWorkAvailable({ side = "ALL", resetMs = 500 } = {}) {
-  const ids = await loadWorkAvailableIds(side);
+async function collectIds({ side = "ALL" } = {}) {
+  const [instocker, grinder] = await Promise.all([
+    DeviceInStocker.findByPk(1),
+    DeviceGrinder.findByPk(1),
+  ]);
+
+  const slots = safeParse(instocker?.slots, {});
+  const sideSignals = safeParse(instocker?.side_signals, {});
+  const grinders = safeParse(grinder?.grinders, []);
+  const sides = collectSideTargets(side);
+
+  const ids = [];
+
+  // 인스토커 측면 신호
+  sides.forEach((s) => {
+    const sig = sideSignals?.[s] || {};
+    ids.push(sig.work_available_id, sig.done_id, sig.error_id, sig.safe_id);
+  });
+
+  // 인스토커 슬롯 신호 (작업중/제품정보)
+  sides.forEach((s) => {
+    SLOT_INDEXES.forEach((idx) => {
+      const key = `${s}${idx}`;
+      const slot = slots?.[key] || {};
+      ids.push(slot.working_id, slot.product_type_id);
+    });
+  });
+
+  // 연마기 신호/제품정보
+  grinders.forEach((gr) => {
+    ids.push(gr?.product_type_id, gr?.bypass_id);
+    POSITIONS.forEach((pos) => {
+      const position = gr?.positions?.[pos] || {};
+      SIGNAL_KEYS.forEach((key) => {
+        ids.push(position?.[key]);
+      });
+    });
+  });
+
+  return Array.from(
+    new Set(ids.map((v) => (v == null ? null : String(v).trim())).filter(Boolean))
+  );
+}
+
+async function writeSignals({ side = "ALL", value = 1 } = {}) {
+  const ids = await collectIds({ side });
   if (!ids.length) {
-    return { success: false, message: "작업가능 신호 ID가 없습니다.", written: [] };
+    return { success: false, message: "PLC ID가 없습니다.", written: [] };
   }
 
   const parsed = ids.map(parseId).filter(Boolean);
@@ -84,12 +135,32 @@ async function triggerInstockerWorkAvailable({ side = "ALL", resetMs = 500 } = {
   client.setID(UNIT_ID);
 
   try {
-    for (const item of parsed) {
+    const bitGroups = new Map();
+    const wordTargets = new Set();
+
+    parsed.forEach((item) => {
       if (item.type === "bit") {
-        await writeBit(client, item.wordAddr, item.bitIndex, 1);
+        const list = bitGroups.get(item.wordAddr) || new Set();
+        list.add(item.bitIndex);
+        bitGroups.set(item.wordAddr, list);
       } else {
-        await writeWord(client, item.wordAddr, 1);
+        wordTargets.add(item.wordAddr);
       }
+    });
+
+    for (const [wordAddr, bits] of bitGroups.entries()) {
+      const readBack = await client.readHoldingRegisters(wordAddr, 1);
+      const current = Number(readBack?.data?.[0] ?? 0) & 0xffff;
+      let next = current;
+      bits.forEach((bitIndex) => {
+        const mask = 1 << bitIndex;
+        next = value ? next | mask : next & ~mask;
+      });
+      await client.writeRegisters(wordAddr, [next]);
+    }
+
+    for (const wordAddr of wordTargets) {
+      await writeWord(client, wordAddr, value);
     }
   } finally {
     try {
@@ -97,37 +168,14 @@ async function triggerInstockerWorkAvailable({ side = "ALL", resetMs = 500 } = {
     } catch {}
   }
 
-  if (resetMs && resetMs > 0) {
-    setTimeout(async () => {
-      const resetClient = new ModbusRTU();
-      resetClient.setTimeout(5000);
-      try {
-        await resetClient.connectTCP(HOST, { port: PORT });
-        resetClient.setID(UNIT_ID);
-        for (const item of parsed) {
-          if (item.type === "bit") {
-            await writeBit(resetClient, item.wordAddr, item.bitIndex, 0);
-          } else {
-            await writeWord(resetClient, item.wordAddr, 0);
-          }
-        }
-      } catch (err) {
-        console.error("[PLC Trigger] reset error:", err?.message || err);
-      } finally {
-        try {
-          resetClient.close(() => {});
-        } catch {}
-      }
-    }, resetMs);
-  }
-
   return {
     success: true,
-    message: "작업가능 신호를 1로 설정했습니다.",
+    message: value ? "테스트 신호를 1로 설정했습니다." : "테스트 신호를 0으로 설정했습니다.",
     written: parsed.map((item) => item.key),
   };
 }
 
 module.exports = {
-  triggerInstockerWorkAvailable,
+  triggerTaskSignals: (opts = {}) => writeSignals({ ...opts, value: 1 }),
+  resetTaskSignals: (opts = {}) => writeSignals({ ...opts, value: 0 }),
 };

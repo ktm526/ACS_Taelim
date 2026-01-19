@@ -64,7 +64,6 @@ export default function GeneralSettings() {
               setTriggerResult(null);
               const res = await api.post("/api/plc/task-trigger", {
                 side: "ALL",
-                resetMs: 500,
               });
               setTriggerResult({
                 type: "success",
@@ -82,6 +81,32 @@ export default function GeneralSettings() {
           loading={triggerLoading}
         >
           태스크 트리거 테스트 (L/R)
+        </Button>
+        <Button
+          danger
+          onClick={async () => {
+            try {
+              setTriggerLoading(true);
+              setTriggerResult(null);
+              const res = await api.post("/api/plc/task-reset", {
+                side: "ALL",
+              });
+              setTriggerResult({
+                type: "success",
+                text: `태스크 신호 리셋: ${res.written?.join(", ") || "완료"}`,
+              });
+            } catch (err) {
+              setTriggerResult({
+                type: "error",
+                text: err?.message || "리셋 실패",
+              });
+            } finally {
+              setTriggerLoading(false);
+            }
+          }}
+          loading={triggerLoading}
+        >
+          태스크 신호 리셋
         </Button>
         {triggerResult && (
           <Tag color={triggerResult.type === "success" ? "green" : "red"}>
