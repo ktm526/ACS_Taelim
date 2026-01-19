@@ -4,7 +4,7 @@ const DeviceGrinder = require('../models/DeviceGrinder');
 const SLOT_SIDES = ['L', 'R'];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
 const GRINDER_INDEXES = [1, 2, 3, 4, 5, 6];
-const POSITIONS = ['L', 'R', 'O', 'I'];
+const POSITIONS = ['L', 'R'];
 const SIGNAL_KEYS = [
   'input_ready_id',
   'output_ready_id',
@@ -27,11 +27,26 @@ function buildDefaultSlots() {
     for (const idx of SLOT_INDEXES) {
       slots[`${side}${idx}`] = {
         working_id: null,
-        done_id: null,
+        product_type_id: null,
+        amr_pos: null,
+        mani_pos: null,
       };
     }
   }
   return slots;
+}
+
+function buildDefaultSideSignals() {
+  const signals = {};
+  for (const side of SLOT_SIDES) {
+    signals[side] = {
+      work_available_id: null,
+      done_id: null,
+      error_id: null,
+      safe_id: null,
+    };
+  }
+  return signals;
 }
 
 function buildDefaultGrinders() {
@@ -42,11 +57,16 @@ function buildDefaultGrinders() {
       for (const key of SIGNAL_KEYS) {
         signals[key] = null;
       }
-      positions[pos] = signals;
+      positions[pos] = {
+        ...signals,
+        amr_pos: null,
+        mani_pos: null,
+      };
     }
     return {
       index,
       product_type_id: null,
+      bypass_id: null,
       positions,
     };
   });
@@ -69,8 +89,24 @@ function normalizeSlots(input) {
     const item = input[key] || {};
     base[key] = {
       working_id: normalizeText(item.working_id),
-      done_id: normalizeText(item.done_id),
       product_type_id: normalizeText(item.product_type_id),
+      amr_pos: normalizeText(item.amr_pos),
+      mani_pos: normalizeText(item.mani_pos),
+    };
+  }
+  return base;
+}
+
+function normalizeSideSignals(input) {
+  const base = buildDefaultSideSignals();
+  if (!input || typeof input !== 'object') return base;
+  for (const side of SLOT_SIDES) {
+    const item = input[side] || {};
+    base[side] = {
+      work_available_id: normalizeText(item.work_available_id),
+      done_id: normalizeText(item.done_id),
+      error_id: normalizeText(item.error_id),
+      safe_id: normalizeText(item.safe_id),
     };
   }
   return base;
@@ -88,11 +124,16 @@ function normalizeGrinders(input) {
       for (const key of SIGNAL_KEYS) {
         signals[key] = normalizeText(sourceSignals[key]);
       }
-      positions[pos] = signals;
+      positions[pos] = {
+        ...signals,
+        amr_pos: normalizeText(sourceSignals.amr_pos),
+        mani_pos: normalizeText(sourceSignals.mani_pos),
+      };
     }
     return {
       index: defaultItem.index,
       product_type_id: normalizeText(item.product_type_id ?? item.product_no),
+      bypass_id: normalizeText(item.bypass_id),
       positions,
     };
   });
@@ -118,12 +159,14 @@ exports.getInstocker = async (req, res) => {
   try {
     const row = await ensureInstocker();
     const slots = safeParseJson(row.slots, buildDefaultSlots());
+    const sideSignals = safeParseJson(row.side_signals, buildDefaultSideSignals());
     res.json({
       success: true,
       data: {
         id: row.id,
         work_available_signal_id: row.work_available_signal_id,
         slots: normalizeSlots(slots),
+        side_signals: normalizeSideSignals(sideSignals),
       },
     });
   } catch (e) {
@@ -137,9 +180,11 @@ exports.updateInstocker = async (req, res) => {
     const row = await ensureInstocker();
     const payload = req.body || {};
     const slots = normalizeSlots(payload.slots);
+    const sideSignals = normalizeSideSignals(payload.side_signals);
     const patch = {
       work_available_signal_id: normalizeText(payload.work_available_signal_id),
       slots: JSON.stringify(slots),
+      side_signals: JSON.stringify(sideSignals),
     };
     await row.update(patch);
     res.json({
@@ -148,6 +193,7 @@ exports.updateInstocker = async (req, res) => {
         id: row.id,
         work_available_signal_id: row.work_available_signal_id,
         slots,
+        side_signals: sideSignals,
       },
     });
   } catch (e) {

@@ -17,6 +17,12 @@ module.exports = sequelize.define('DeviceInStocker', {
     allowNull: false,
     defaultValue: '{}',
   },
+  side_signals: {
+    // L/R 공통 신호(작업완료/작업에러/안전위치) JSON 저장
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: '{}',
+  },
 }, {
   tableName: 'DeviceInStocker',
   timestamps: true,

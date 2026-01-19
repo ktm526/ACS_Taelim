@@ -10,15 +10,13 @@ import {
   Tag,
   message,
   theme,
-  Space,
 } from "antd";
-import { SettingOutlined, TableOutlined } from "@ant-design/icons";
+import { SettingOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useAtom } from "jotai";
 import { mapsQueryAtom, robotsQueryAtom, selectedMapAtom } from "@/state/atoms";
 import arrowIcon from "@/assets/arrow.png";
 import SignalOverlay from "@/components/SignalOverlay";
-import PLCMapEditorDrawer from "@/components/PLCMapEditorDrawer";
 import PasswordConfirm from "@/components/PasswordConfirm";
 import usePasswordConfirm from "@/hooks/usePasswordConfirm";
 
@@ -219,7 +217,6 @@ export default function Canvas() {
   // 모달 상태
   const [modalOpen, setModalOpen] = useState(false);
   const [tempId, setTempId] = useState(selMap?.id);
-  const [plcEditorOpen, setPlcEditorOpen] = useState(false);
 
   // 캔버스 refs
   const contRef = useRef(null);
@@ -603,24 +600,14 @@ export default function Canvas() {
         size="small"
         title={`${selMap?.name ?? "―"}`}
         extra={
-          <Space>
-            <Button
-              size="small"
-              icon={<TableOutlined />}
-              onClick={() => setPlcEditorOpen(true)}
-              title="PLC 맵 편집은 '맵 설정' 페이지에서 하는 것을 권장합니다"
-            >
-              PLC 맵
-            </Button>
-            <Button
-              size="small"
-              icon={<SettingOutlined />}
-              onClick={() => {
-                setTempId(selMap?.id);
-                setModalOpen(true);
-              }}
-            />
-          </Space>
+          <Button
+            size="small"
+            icon={<SettingOutlined />}
+            onClick={() => {
+              setTempId(selMap?.id);
+              setModalOpen(true);
+            }}
+          />
         }
         style={{ height: "calc(100%)" }}
         bodyStyle={{ height: "calc(100%)" }}
@@ -770,14 +757,6 @@ export default function Canvas() {
         onConfirm={passwordConfirm.handleConfirm}
         onCancel={passwordConfirm.handleCancel}
         {...passwordConfirm.modalProps}
-      />
-
-      <PLCMapEditorDrawer
-        open={plcEditorOpen}
-        onClose={() => setPlcEditorOpen(false)}
-        apiBase={CORE}
-        stations={safeParse(selMap?.stations).stations ?? []}
-        map={selMap}
       />
     </>
   );

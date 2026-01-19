@@ -1,20 +1,8 @@
 import React from "react";
 import { ConfigProvider } from "antd";
-import { useAtomValue } from "jotai";
-import { selectedMapAtom } from "@/state/atoms";
 import ServerMapFile from "./ServerMapFile";
-import PLCMapEditorPanel from "@/components/PLCMapEditorPanel";
 
 export default function MapSettings() {
-  const selMap = useAtomValue(selectedMapAtom);
-  const stations = (() => {
-    try {
-      return JSON.parse(selMap?.stations || "{}").stations || [];
-    } catch {
-      return [];
-    }
-  })();
-
   return (
     <ConfigProvider
       theme={{
@@ -28,22 +16,12 @@ export default function MapSettings() {
     >
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "1fr",
-          gap: 24,
-          height: "100vh",
           padding: 24,
-          overflowY: "hidden",
+          height: "100vh",
+          boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "grid", gridTemplateRows: "0.7fr 1.3fr", gap: 24, minHeight: 0 }}>
-          <ServerMapFile />
-          <PLCMapEditorPanel
-            apiBase={import.meta.env.VITE_CORE_BASE_URL || ""}
-            stations={stations}
-            map={selMap}
-          />
-        </div>
+        <ServerMapFile />
       </div>
     </ConfigProvider>
   );

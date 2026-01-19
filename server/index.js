@@ -91,6 +91,16 @@ app.use(express.static(path.join(__dirname, 'dist')));
     };
     await ensurePLCMapColumns();
 
+    /* 0-4) 인스토커 설정 테이블에 side_signals 컬럼 추가 */
+    const ensureDeviceInStockerColumns = async () => {
+      await qi.addColumn('DeviceInStocker', 'side_signals', {
+        type: require('sequelize').DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: '{}',
+      }).catch(() => { });
+    };
+    await ensureDeviceInStockerColumns();
+
     /* 1) 실제 테이블 자동 생성/변경 ----------------------- */
     //await sequelize.sync({ force: true });
     await sequelize.sync();
