@@ -190,6 +190,8 @@ export default function DeviceSettings() {
       pushId(instocker.slots?.[slotKey]?.product_type_id);
     });
     grinder.grinders.forEach((item) => {
+      pushId(item.product_type_id);
+      pushId(item.bypass_id);
       POSITIONS.forEach((position) => {
         SIGNALS.forEach((signal) => {
           pushId(item.positions?.[position]?.[signal.key]);
