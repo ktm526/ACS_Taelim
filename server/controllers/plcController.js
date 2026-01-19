@@ -1,6 +1,7 @@
 // server/controllers/plcController.js
 const ModbusRTU = require("modbus-serial");
 const plc = require("../services/plcMonitorService");
+const { triggerInstockerWorkAvailable } = require("../services/plcTaskTriggerService");
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
@@ -134,6 +135,26 @@ exports.getValues = async (req, res) => {
     try {
       client.close(() => {});
     } catch {}
+  }
+};
+
+/**
+ * POST /api/plc/task-trigger
+ * - body: { side: "L"|"R"|"ALL", resetMs?: number }
+ */
+exports.triggerTask = async (req, res) => {
+  try {
+    const sideRaw = String(req.body?.side || "ALL").toUpperCase();
+    const side = sideRaw === "L" || sideRaw === "R" ? sideRaw : "ALL";
+    const resetMs = Number(req.body?.resetMs ?? 500);
+    const result = await triggerInstockerWorkAvailable({ side, resetMs });
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    console.error("[PLC.triggerTask]", e);
+    return res.status(500).json({ success: false, message: e.message });
   }
 };
 

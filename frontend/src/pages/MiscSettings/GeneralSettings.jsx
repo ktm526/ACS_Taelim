@@ -1,11 +1,13 @@
-import React from "react";
-import { Card, Descriptions, Spin, Alert, Button } from "antd";
+import React, { useState } from "react";
+import { Card, Descriptions, Spin, Alert, Button, Divider, Tag } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useApiClient } from "@/hooks/useApiClient";
 
 export default function GeneralSettings() {
   const api = useApiClient();
+  const [triggerLoading, setTriggerLoading] = useState(false);
+  const [triggerResult, setTriggerResult] = useState(null);
 
   // Settings (PLC → DB) 조회
   const settingsQ = useQuery({
@@ -52,6 +54,41 @@ export default function GeneralSettings() {
           </Descriptions.Item>
         </Descriptions>
       )}
+      <Divider />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <Button
+          type="primary"
+          onClick={async () => {
+            try {
+              setTriggerLoading(true);
+              setTriggerResult(null);
+              const res = await api.post("/api/plc/task-trigger", {
+                side: "ALL",
+                resetMs: 500,
+              });
+              setTriggerResult({
+                type: "success",
+                text: `태스크 트리거 신호 전송: ${res.written?.join(", ") || "완료"}`,
+              });
+            } catch (err) {
+              setTriggerResult({
+                type: "error",
+                text: err?.message || "태스크 트리거 실패",
+              });
+            } finally {
+              setTriggerLoading(false);
+            }
+          }}
+          loading={triggerLoading}
+        >
+          태스크 트리거 테스트 (L/R)
+        </Button>
+        {triggerResult && (
+          <Tag color={triggerResult.type === "success" ? "green" : "red"}>
+            {triggerResult.text}
+          </Tag>
+        )}
+      </div>
     </Card>
   );
 }

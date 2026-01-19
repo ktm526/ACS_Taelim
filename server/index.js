@@ -114,6 +114,8 @@ app.use(express.static(path.join(__dirname, 'dist')));
     require('./services/settingsService');
     console.log('Loading plcMonitorService...');
     require('./services/plcMonitorService');
+    console.log('Loading taskCreateService...');
+    require('./services/taskCreateService');
     // dispatcher/taskExecutor/robotJack/robotMotion/robotMap 기능은 제거됨
 
     /* 3) React Router 지원을 위한 catch-all 라우트 ─── */

@@ -1,130 +1,251 @@
 // [시나리오]
 // 1. in스토커 -> 연마기
 //  - in스토커 enable
-//     - 적재 sorting 고민 필요
-//  - 인스토커로 이동해서 -> 물건 (최대 6개)를 AMR에 적재하고, 
+//  - 인스토커로 이동해서 -> 물건 (최대 6개)를 AMR에 적재하고,
 //  - 연마기 input 가능 개수가 ok 될 때 까지 대기 (max 대기시간을 세팅값에서 사용해서, 지나면 alarm)
 //  - 연마기(제품 조건에 맞는)에 투입
 //  - 복귀
 
-//  2. 연마기 -> out스토커
-//  - out스토커 신호가 enable = 1인 경우, 작업 위치 = 1 && 끝단 위치 0인 스토커 수 && 기준연마기에 꺼낼 수 있는 제품이 있는지 확인하고 
-//  - 일정시간(설정 가능) 동안 기다렸다가
-//  - 연마기에서 꺼낼 수 있는 제품을 최대한 꺼내와서
-//  - out스토커에 순차적으로(왼쪽 위 임시) 투입
-//  - 컨베이어 enable 신호 확인 후, out스토커에서 최대한 많은 공지그를 꺼내서 운송
-
-//  3. out스토커 -> 컨베이어
-//  - 컨베이어 enable 신호 확인 후, out스토커에서 최대한 많은 공지그를 꺼내서 운송
-
-
-//  * 필요한 Step  
-// - 이동 (amr이 특정 스테이션으로 이동)
-// - 작업 (팔 from - to)
-// - 대기 (max 시간, 조건용 함수)
-// - plc 쓰기 (쓸 address, bit/word, value)
-
-// * 필요 function
-// - 연마기 인풋 가능 리스트 체크 ("814:[1L, 2R, 3R], 219:[4L]")
-// - 연마기 아웃풋 가능 리스트 체크 ("814:[1L, 2R, 3R], 219:[4L]")
-// - out스토커 가능 위치 리스트 체크 ("[L-1-3, R-1-3]")
-// //- (보류) 컨베이어 작업 가능 리스트 체크 ("814:[L], 219:[R]")
-
-
-
-
 const plc = require("./plcMonitorService");
+const DeviceInStocker = require("../models/DeviceInStocker");
+const DeviceGrinder = require("../models/DeviceGrinder");
+const Robot = require("../models/Robot");
+const { Task, TaskStep } = require("../models");
 
-// 1. 연마기 인풋 가능 리스트 체크 -------
-const NUMBER_OF_GRINDERS = 6;
-const GRINDER_INPUT_ADDRESS = 6007;
+const SIDES = ["L", "R"];
+const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
+const POSITIONS = ["L", "R"];
 
-const GRINDER_PRESET_START = 6090;
-const PRODUCT_814 = "p814";
-const PRODUCT_219 = "p219";
-const PRODUCT_BY_REGISTER = new Map([
-  [1, PRODUCT_814],
-  [2, PRODUCT_219],
-]);
+const CHECK_THROTTLE_MS = 300;
+const CONFIG_TTL_MS = 2000;
 
-// D6090~D6095: register 값이 1이면 product 814, 2이면 product 219
-function getPresetProductIdFromRegister(value) {
-  const v = Number(value);
-  return PRODUCT_BY_REGISTER.has(v) ? PRODUCT_BY_REGISTER.get(v) : null;
-}
+const lastSideState = { L: 0, R: 0 };
+const sideLock = { L: false, R: false };
+let lastCheckAt = 0;
+let configCache = null;
+let configFetchedAt = 0;
 
-// 각 연마기(1~6)의 preset 제품 종류 을 읽어오는 함수
-function readGrinderPresetProducts() {
-  const result = {};
-  for (let i = 0; i < NUMBER_OF_GRINDERS; i++) {
-    const grinderNo = i + 1;
-    const addr = GRINDER_PRESET_START + i;
-    const regValue = plc.getWord(addr);
-    result[grinderNo] = getPresetProductIdFromRegister(regValue);
+function safeParse(raw, fallback) {
+  if (raw == null) return fallback;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
   }
-  return result;
 }
 
-// test 코드
-//const grinderPresetProducts = readGrinderPresetProducts();
-//console.log(grinderPresetProducts);
+function normalizeText(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text.length ? text : null;
+}
 
-// read register from D6007.0, D6007.2 to D6012.0, D6012.2
-// 각 레지스터 bit0 = L, bit2 = R (ON이면 투입구 Ready)
-// - 연마기 인풋 가능 리스트 체크 ("814:[1L, 2R, 3R], 219:[4L]")
-function readGrinderInputReady() {
-  const presetByGrinder = readGrinderPresetProducts();
-  const result = {
-    [PRODUCT_814]: [],
-    [PRODUCT_219]: [],
-  };
-  for (let i = 0; i < NUMBER_OF_GRINDERS; i++) {
-    const grinderNo = i + 1;
-    const addr = GRINDER_INPUT_ADDRESS + i;
-    const lReady = Boolean(plc.getBit(`${addr}.0`));
-    const rReady = Boolean(plc.getBit(`${addr}.2`));
-    const productType = presetByGrinder[grinderNo];
-    // 추후 bypass 처리도 추가>?
-    if (!productType || !result[productType]) continue;
-    if (lReady) result[productType].push(`${grinderNo}L`);
-    if (rReady) result[productType].push(`${grinderNo}R`);
+function isSignalOn(id) {
+  const key = normalizeText(id);
+  if (!key) return false;
+  if (key.includes(".")) {
+    return plc.getBit(key) === true;
   }
-  return result;
+  const value = plc.getWord(key);
+  return Number(value) === 1;
 }
 
-// --- 2. grinder output Ready ---
-// - 연마기 아웃풋 가능 리스트 체크 ("814:[1L, 2R, 3R], 219:[4L]")
-function readGrinderOutputReady() {
-  const presetByGrinder = readGrinderPresetProducts();
-  const result = {
-    [PRODUCT_814]: [],
-    [PRODUCT_219]: [],
-  };
-  for (let i = 0; i < NUMBER_OF_GRINDERS; i++) {
-    const grinderNo = i + 1;
-    const addr = GRINDER_INPUT_ADDRESS + i;
-    const lReady = Boolean(plc.getBit(`${addr}.1`));
-    const rReady = Boolean(plc.getBit(`${addr}.3`));
-    const productType = presetByGrinder[grinderNo];
-    // 추후 bypass 처리도 추가>?
-    if (!productType || !result[productType]) continue;
-    if (lReady) result[productType].push(`${grinderNo}L`);
-    if (rReady) result[productType].push(`${grinderNo}R`);
+async function loadConfig() {
+  const now = Date.now();
+  if (configCache && now - configFetchedAt < CONFIG_TTL_MS) return configCache;
+
+  const [instockerRow, grinderRow] = await Promise.all([
+    DeviceInStocker.findByPk(1),
+    DeviceGrinder.findByPk(1),
+  ]);
+
+  const instockerSlots = safeParse(instockerRow?.slots, {});
+  const sideSignals = safeParse(instockerRow?.side_signals, {});
+  const grinders = safeParse(grinderRow?.grinders, []);
+
+  configCache = { instockerSlots, sideSignals, grinders };
+  configFetchedAt = now;
+  return configCache;
+}
+
+function getSideSlots(slots, side) {
+  return SLOT_INDEXES.map((idx) => {
+    const key = `${side}${idx}`;
+    const item = slots?.[key] || {};
+    return {
+      key,
+      index: idx,
+      product_type_id: normalizeText(item.product_type_id),
+      amr_pos: normalizeText(item.amr_pos),
+      mani_pos: normalizeText(item.mani_pos),
+    };
+  });
+}
+
+function buildAvailableGrinderPositions(grinders) {
+  const byProduct = new Map();
+  grinders.forEach((grinder, gIdx) => {
+    const productType = normalizeText(grinder?.product_type_id);
+    if (!productType) return;
+    POSITIONS.forEach((pos) => {
+      const position = grinder?.positions?.[pos] || {};
+      const station = normalizeText(position.amr_pos);
+      const maniPos = normalizeText(position.mani_pos);
+      if (!station) return;
+      if (!maniPos) return;
+      const readyId = normalizeText(position.input_ready_id);
+      if (!readyId) return;
+      if (!isSignalOn(readyId)) return;
+      const list = byProduct.get(productType) || [];
+      list.push({
+        station,
+        mani_pos: maniPos,
+        grinderIndex: grinder?.index ?? gIdx + 1,
+        position: pos,
+      });
+      byProduct.set(productType, list);
+    });
+  });
+  return byProduct;
+}
+
+async function createTaskForSide(side, config) {
+  const slots = getSideSlots(config.instockerSlots, side);
+  if (slots.length === 0) return;
+
+  const pickupStation = slots[0]?.amr_pos;
+  if (!pickupStation) {
+    console.warn(`[TaskCreate] ${side}: L/R 1번 칸 AMR pos 없음`);
+    return;
   }
-  return result;
+
+  const availableByProduct = buildAvailableGrinderPositions(config.grinders);
+  const slotTargets = [];
+  for (const slot of slots) {
+    if (!slot.product_type_id || !slot.mani_pos) {
+      console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락`);
+      return;
+    }
+    const list = availableByProduct.get(slot.product_type_id) || [];
+    if (list.length === 0) {
+      console.log(
+        `[TaskCreate] ${side}: 제품 ${slot.product_type_id} 투입 가능 위치 부족`
+      );
+      return;
+    }
+    const next = list.shift();
+    slotTargets.push({
+      slotIndex: slot.index,
+      product_type_id: slot.product_type_id,
+      instocker_mani_pos: slot.mani_pos,
+      grinder_station: next.station,
+      grinder_mani_pos: next.mani_pos,
+    });
+    availableByProduct.set(slot.product_type_id, list);
+  }
+
+  const robot = await Robot.findOne({ where: { name: "M1000" } });
+  if (!robot) {
+    console.warn("[TaskCreate] M1000 로봇 없음");
+    return;
+  }
+
+  const existingTask = await Task.findOne({
+    where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
+  });
+  if (existingTask) {
+    console.log(`[TaskCreate] M1000 기존 태스크 진행 중: ${existingTask.id}`);
+    return;
+  }
+
+  const steps = [];
+  steps.push({ type: "NAV", payload: JSON.stringify({ dest: pickupStation }) });
+
+  // 인스토커 -> AMR 적재 (1칸 ~ 6칸 순서)
+  slots.forEach((slot) => {
+    steps.push({
+      type: "MANI_WORK",
+      payload: JSON.stringify({
+        CMD_ID: slot.index,
+        CMD_FROM: slot.mani_pos,
+        CMD_TO: slot.index,
+      }),
+    });
+  });
+
+  // AMR -> 연마기 투입 (나중에 넣은 제품부터, 6개 순서쌍)
+  const slotTargetsDesc = [...slotTargets].sort(
+    (a, b) => b.slotIndex - a.slotIndex
+  );
+  slotTargetsDesc.forEach((target) => {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: target.grinder_station }),
+    });
+    steps.push({
+      type: "MANI_WORK",
+      payload: JSON.stringify({
+        CMD_ID: target.slotIndex,
+        CMD_FROM: target.slotIndex,
+        CMD_TO: target.grinder_mani_pos,
+      }),
+    });
+  });
+
+  if (robot.home_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_station }),
+    });
+  }
+
+  const task = await Task.create(
+    {
+      robot_id: robot.id,
+      steps: steps.map((s, i) => ({ ...s, seq: i })),
+    },
+    { include: [{ model: TaskStep, as: "steps" }] }
+  );
+
+  console.log(
+    `[TaskCreate] ${side}: 작업가능=1 → Task#${task.id} 발행 (${steps.length} steps)`
+  );
 }
 
-// Read Out Stoker Ready
-// - out스토커 가능 위치 리스트 체크 ("[L-1-3, R-1-3]")
-// 아웃스토커 어떤곳에 어떤 제품이 있는지 읽어오는 것
+async function checkSide(side) {
+  if (sideLock[side]) return;
+  sideLock[side] = true;
+  try {
+    const config = await loadConfig();
+    const workId = normalizeText(config.sideSignals?.[side]?.work_available_id);
+    if (!workId) return;
 
-function readOutStokerReady() {
+    const current = isSignalOn(workId) ? 1 : 0;
+    const prev = lastSideState[side];
+    if (current !== prev) lastSideState[side] = current;
+    if (current === 1 && prev !== 1) {
+      await createTaskForSide(side, config);
+    }
+  } catch (err) {
+    console.error(`[TaskCreate] ${side} 체크 오류:`, err?.message || err);
+  } finally {
+    sideLock[side] = false;
+  }
 }
 
+function onPlcUpdate() {
+  const now = Date.now();
+  if (now - lastCheckAt < CHECK_THROTTLE_MS) return;
+  lastCheckAt = now;
+  SIDES.forEach((side) => {
+    checkSide(side);
+  });
+}
 
-// reg 
+function start() {
+  plc.events.on("update", onPlcUpdate);
+  console.log("[TaskCreate] service started");
+}
 
-module.exports = {
-  readGrinderPresetProducts,
-  readGrinderInputReady,
-};
+start();
