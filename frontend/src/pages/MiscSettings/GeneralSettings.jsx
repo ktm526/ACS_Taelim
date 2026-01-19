@@ -63,16 +63,16 @@ export default function GeneralSettings() {
               setTriggerLoading(true);
               setTriggerResult(null);
               const res = await api.post("/api/plc/task-trigger", {
-                side: "ALL",
+                side: "L",
               });
               setTriggerResult({
                 type: "success",
-                text: `태스크 트리거 신호 전송: ${res.written?.join(", ") || "완료"}`,
+                text: `좌측 트리거 전송: ${res.written?.join(", ") || "완료"}`,
               });
             } catch (err) {
               setTriggerResult({
                 type: "error",
-                text: err?.message || "태스크 트리거 실패",
+                text: err?.message || "좌측 트리거 실패",
               });
             } finally {
               setTriggerLoading(false);
@@ -80,7 +80,33 @@ export default function GeneralSettings() {
           }}
           loading={triggerLoading}
         >
-          태스크 트리거 테스트 (L/R)
+          태스크 트리거 테스트 (L)
+        </Button>
+        <Button
+          type="primary"
+          onClick={async () => {
+            try {
+              setTriggerLoading(true);
+              setTriggerResult(null);
+              const res = await api.post("/api/plc/task-trigger", {
+                side: "R",
+              });
+              setTriggerResult({
+                type: "success",
+                text: `우측 트리거 전송: ${res.written?.join(", ") || "완료"}`,
+              });
+            } catch (err) {
+              setTriggerResult({
+                type: "error",
+                text: err?.message || "우측 트리거 실패",
+              });
+            } finally {
+              setTriggerLoading(false);
+            }
+          }}
+          loading={triggerLoading}
+        >
+          태스크 트리거 테스트 (R)
         </Button>
         <Button
           danger
