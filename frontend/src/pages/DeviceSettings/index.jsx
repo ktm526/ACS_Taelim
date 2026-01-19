@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Card, Input, Button, Spin, message, Divider, Tag, Select } from "antd";
+import { Card, Input, Button, Spin, message, Tag, Select, Collapse } from "antd";
+import { CaretRightOutlined } from "@ant-design/icons";
 import { useAtomValue } from "jotai";
 import { useApiClient } from "@/hooks/useApiClient";
 import { selectedMapAtom } from "@/state/atoms";
@@ -657,37 +658,29 @@ export default function DeviceSettings() {
     );
   }
 
-  return (
-    <div style={{ padding: 32, background: "#fafafa", minHeight: "100%" }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 24 }}>
-        <Card
-          title="인스토커 설정"
-          extra={
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <Button onClick={handleExportCsv}>CSV 내보내기</Button>
-              <Button onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
-              <Button type="primary" onClick={saveInstocker} loading={savingInstocker}>
-                저장
-              </Button>
-              {instockerSavedAt && (
-                <Tag color="green">
-                  저장됨 {instockerSavedAt.toLocaleTimeString("ko-KR")}
-                </Tag>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImportCsv(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-          }
-        >
+  const collapseItems = [
+    {
+      key: "instocker",
+      label: (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>인스토커 설정</span>
+          {instockerSavedAt && (
+            <Tag color="green" style={{ margin: 0 }}>
+              저장됨 {instockerSavedAt.toLocaleTimeString("ko-KR")}
+            </Tag>
+          )}
+        </div>
+      ),
+      extra: (
+        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" onClick={handleExportCsv}>CSV 내보내기</Button>
+          <Button size="small" onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
+          <Button size="small" type="primary" onClick={saveInstocker} loading={savingInstocker}>
+            저장
+          </Button>
+        </div>
+      ),
+      children: (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             {SLOT_SIDES.map((side) => (
               <div
@@ -854,125 +847,115 @@ export default function DeviceSettings() {
               </div>
             ))}
           </div>
-        </Card>
-
-        <Card
-          title="아웃스토커 설정"
-          extra={
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <Button onClick={handleExportCsv}>CSV 내보내기</Button>
-              <Button onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
-              <Button type="primary" onClick={saveOutstocker} loading={savingOutstocker}>
-                저장
-              </Button>
-              {outstockerSavedAt && (
-                <Tag color="green">
-                  저장됨 {outstockerSavedAt.toLocaleTimeString("ko-KR")}
-                </Tag>
-              )}
-            </div>
-          }
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap: 16,
-            }}
-          >
-            {OUT_SIDES.map((side) => (
+      ),
+    },
+    {
+      key: "outstocker",
+      label: (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>아웃스토커 설정</span>
+          {outstockerSavedAt && (
+            <Tag color="green" style={{ margin: 0 }}>
+              저장됨 {outstockerSavedAt.toLocaleTimeString("ko-KR")}
+            </Tag>
+          )}
+        </div>
+      ),
+      extra: (
+        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" onClick={handleExportCsv}>CSV 내보내기</Button>
+          <Button size="small" onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
+          <Button size="small" type="primary" onClick={saveOutstocker} loading={savingOutstocker}>
+            저장
+          </Button>
+        </div>
+      ),
+      children: (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          {OUT_SIDES.map((side) => (
+            <Card
+              key={side}
+              size="small"
+              title={getOutSideLabel(side)}
+              style={{ background: "#fafafa" }}
+              styles={{ body: { padding: 12 } }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+                <span style={{ fontSize: 12, width: 50 }}>bypass</span>
+                <Input
+                  size="small"
+                  value={outstocker.sides?.[side]?.bypass_id ?? ""}
+                  onChange={(e) => handleOutstockerSideChange(side, "bypass_id", e.target.value)}
+                  placeholder="ID"
+                  style={{ flex: 1 }}
+                />
+                {renderValueTag(outstocker.sides?.[side]?.bypass_id ? plcValues?.[outstocker.sides?.[side]?.bypass_id] : null)}
+              </div>
               <div
-                key={side}
                 style={{
-                  border: "1px solid #e8e8e8",
-                  borderRadius: 8,
-                  padding: 12,
-                  background: "#fff",
+                  display: "grid",
+                  gridTemplateColumns: "40px repeat(3, 1fr)",
+                  gap: 4,
+                  fontSize: 11,
                 }}
               >
-                <div
-                  style={{
-                    fontWeight: 600,
-                    fontSize: 14,
-                    marginBottom: 8,
-                    borderBottom: "1px solid #f0f0f0",
-                    paddingBottom: 8,
-                  }}
-                >
-                  {getOutSideLabel(side)}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "80px 1fr 60px",
-                    gap: 4,
-                    alignItems: "center",
-                    fontSize: 12,
-                    marginBottom: 8,
-                  }}
-                >
-                  <span>bypass</span>
-                  <Input
-                    size="small"
-                    value={outstocker.sides?.[side]?.bypass_id ?? ""}
-                    onChange={(e) => handleOutstockerSideChange(side, "bypass_id", e.target.value)}
-                    placeholder="ID"
-                  />
-                  {renderValueTag(outstocker.sides?.[side]?.bypass_id
-                    ? plcValues?.[outstocker.sides?.[side]?.bypass_id]
-                    : null)}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "90px 1fr 60px",
-                    gap: 4,
-                    alignItems: "center",
-                    fontSize: 12,
-                  }}
-                >
-                  {OUT_ROWS.flatMap((row) =>
-                    OUT_FIELDS.map((field) => {
+                <div style={{ fontWeight: 600 }}>열</div>
+                {OUT_FIELDS.map((f) => (
+                  <div key={f.key} style={{ fontWeight: 600, textAlign: "center" }}>{f.label}</div>
+                ))}
+                {OUT_ROWS.map((row) => (
+                  <React.Fragment key={row}>
+                    <div style={{ fontWeight: 600, display: "flex", alignItems: "center" }}>{row}</div>
+                    {OUT_FIELDS.map((field) => {
                       const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
                       return (
-                        <React.Fragment key={`${side}-${row}-${field.key}`}>
-                          <span>{`${row}열 ${field.label}`}</span>
+                        <div key={field.key} style={{ display: "flex", gap: 2, alignItems: "center" }}>
                           <Input
                             size="small"
                             value={value ?? ""}
-                            onChange={(e) =>
-                              handleOutstockerRowChange(side, row, field.key, e.target.value)
-                            }
+                            onChange={(e) => handleOutstockerRowChange(side, row, field.key, e.target.value)}
                             placeholder="ID"
+                            style={{ flex: 1, fontSize: 11 }}
                           />
-                          {renderValueTag(value ? plcValues?.[value] : null)}
-                        </React.Fragment>
+                          <Tag
+                            color={value && plcValues?.[value] != null ? "blue" : "default"}
+                            style={{ margin: 0, fontSize: 10, padding: "0 3px", minWidth: 24, textAlign: "center" }}
+                          >
+                            {value ? plcValues?.[value] ?? "-" : "-"}
+                          </Tag>
+                        </div>
                       );
-                    })
-                  )}
-                </div>
+                    })}
+                  </React.Fragment>
+                ))}
               </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card
-          title="연마기 설정"
-          extra={
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <Button onClick={handleExportCsv}>CSV 내보내기</Button>
-              <Button onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
-              <Button type="primary" onClick={saveGrinder} loading={savingGrinder}>
-                저장
-              </Button>
-              {grinderSavedAt && (
-                <Tag color="green">
-                  저장됨 {grinderSavedAt.toLocaleTimeString("ko-KR")}
-                </Tag>
-              )}
-            </div>
-          }
-        >
+            </Card>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "grinder",
+      label: (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>연마기 설정</span>
+          {grinderSavedAt && (
+            <Tag color="green" style={{ margin: 0 }}>
+              저장됨 {grinderSavedAt.toLocaleTimeString("ko-KR")}
+            </Tag>
+          )}
+        </div>
+      ),
+      extra: (
+        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" onClick={handleExportCsv}>CSV 내보내기</Button>
+          <Button size="small" onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
+          <Button size="small" type="primary" onClick={saveGrinder} loading={savingGrinder}>
+            저장
+          </Button>
+        </div>
+      ),
+      children: (
           <div
             style={{
               display: "grid",
@@ -1138,7 +1121,30 @@ export default function DeviceSettings() {
               </div>
             ))}
           </div>
-        </Card>
+      ),
+    },
+  ];
+
+  return (
+    <div style={{ padding: 32, background: "#fafafa", minHeight: "100%" }}>
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleImportCsv(file);
+            e.target.value = "";
+          }}
+        />
+        <Collapse
+          defaultActiveKey={["instocker"]}
+          expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
+          items={collapseItems}
+          style={{ background: "#fff", borderRadius: 8 }}
+        />
       </div>
     </div>
   );
