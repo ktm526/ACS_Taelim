@@ -6,6 +6,10 @@ const cors = require('cors');
 const sequelize = require('./config/db');
 const app = express();
 
+// 장치 설정 모델 등록 (sync 전에 로드)
+require('./models/DeviceInStocker');
+require('./models/DeviceGrinder');
+
 /* ── ① 공통 미들웨어 ─────────────────────────────── */
 app.use(cors({ origin: '*' }));
 app.use(express.json());
@@ -23,6 +27,8 @@ console.log('Loading plcMapRoutes...');
 app.use('/api/plc-maps', require('./routes/plcMapRoutes'));
 console.log('Loading settingsRoutes...');
 app.use('/api/settings', require('./routes/settingsRoutes'));
+console.log('Loading deviceRoutes...');
+app.use('/api/devices', require('./routes/deviceRoutes'));
 console.log('Loading plcRoutes...');
 app.use('/api/plc', require('./routes/plcRoutes'));
 console.log('Loading healthRoutes...');

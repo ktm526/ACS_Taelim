@@ -16,6 +16,7 @@ import { useApiClient } from "@/hooks/useApiClient";
 const items = [
   { key: "/", icon: <HomeOutlined />, label: "메인" },
   { key: "/map", icon: <ToolOutlined />, label: "맵 설정" },
+  { key: "/devices", icon: <SettingOutlined />, label: "장치 설정" },
   { key: "/settings", icon: <SettingOutlined />, label: "기타 설정" },
   // { key: "/mobile", icon: <MobileOutlined />, label: "📱 모바일" },
 ];

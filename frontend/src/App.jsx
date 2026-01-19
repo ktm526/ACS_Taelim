@@ -10,6 +10,7 @@ import SideNav from "@/components/SideNav";
 import Home from "@/pages/Home";
 import MapSettings from "@/pages/MapSettings";
 import MiscSettings from "@/pages/MiscSettings";
+import DeviceSettings from "@/pages/DeviceSettings";
 import MobileStatus from "@/pages/Mobile/MobileStatus";
 import Login from "@/pages/Login";
 import logo from "@/assets/logo.png";
@@ -175,6 +176,7 @@ export default function App() {
             {/* 로그 기능은 서버 개편으로 제거됨 */}
             <Route path="/logs" element={<Navigate to="/" replace />} />
             <Route path="/settings" element={<MiscSettings />} />
+            <Route path="/devices" element={<DeviceSettings />} />
           </Routes>
         </Content>
       </Layout>
