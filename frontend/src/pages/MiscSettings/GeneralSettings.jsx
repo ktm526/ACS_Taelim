@@ -154,10 +154,34 @@ export default function GeneralSettings() {
       dataIndex: "response",
       key: "response",
       render: (v, record) => {
-        if (record.error) return <span style={{ color: "red" }}>{record.error}</span>;
+        if (record.error) {
+          return (
+            <pre style={{ margin: 0, color: "red", whiteSpace: "pre-wrap" }}>
+              {record.error}
+            </pre>
+          );
+        }
         if (v == null) return "-";
-        const str = typeof v === "string" ? v : JSON.stringify(v);
-        return <span style={{ fontSize: 11, wordBreak: "break-all" }}>{str.length > 200 ? str.slice(0, 200) + "..." : str}</span>;
+        const pretty =
+          typeof v === "string" ? v : JSON.stringify(v, null, 2);
+        return (
+          <pre
+            style={{
+              margin: 0,
+              maxHeight: 180,
+              overflow: "auto",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+              fontSize: 11,
+              lineHeight: 1.4,
+              background: "#fafafa",
+              padding: "6px 8px",
+              borderRadius: 4,
+            }}
+          >
+            {pretty}
+          </pre>
+        );
       },
     },
   ];
