@@ -179,3 +179,49 @@ exports.resetTask = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────
+// TCP 테스트 관련
+// ─────────────────────────────────────────────────────────────
+const tcpTest = require("../services/tcpTestService");
+
+/**
+ * POST /api/plc/tcp-test/start
+ * body: { host?, port?, message?, intervalMs? }
+ */
+exports.startTcpTest = (req, res) => {
+  try {
+    const config = req.body || {};
+    const result = tcpTest.start(config);
+    return res.json(result);
+  } catch (e) {
+    console.error("[TCP Test.start]", e);
+    return res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+/**
+ * POST /api/plc/tcp-test/stop
+ */
+exports.stopTcpTest = (req, res) => {
+  try {
+    const result = tcpTest.stop();
+    return res.json(result);
+  } catch (e) {
+    console.error("[TCP Test.stop]", e);
+    return res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+/**
+ * GET /api/plc/tcp-test/status
+ */
+exports.getTcpTestStatus = (req, res) => {
+  try {
+    const status = tcpTest.getStatus();
+    return res.json({ success: true, data: status });
+  } catch (e) {
+    console.error("[TCP Test.status]", e);
+    return res.status(500).json({ success: false, message: e.message });
+  }
+};
+

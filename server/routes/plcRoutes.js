@@ -7,5 +7,10 @@ router.post("/values", c.getValues); // POST /api/plc/values
 router.post("/task-trigger", c.triggerTask); // POST /api/plc/task-trigger
 router.post("/task-reset", c.resetTask); // POST /api/plc/task-reset
 
+// TCP 테스트
+router.post("/tcp-test/start", c.startTcpTest);
+router.post("/tcp-test/stop", c.stopTcpTest);
+router.get("/tcp-test/status", c.getTcpTestStatus);
+
 module.exports = router;
 
