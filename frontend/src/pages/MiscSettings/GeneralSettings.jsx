@@ -104,12 +104,10 @@ export default function GeneralSettings() {
         setTcpMessageError("메시지 JSON 형식이 올바르지 않습니다.");
         return;
       }
-      if (tcpApiNo) {
-        message = { ...message, api_no: Number(tcpApiNo) };
-      }
       await api.post("/api/plc/tcp-test/start", {
         host: tcpHost,
         port: Number(tcpPort),
+        apiNo: Number(tcpApiNo),
         message,
         intervalMs: 1000,
       });
@@ -310,7 +308,7 @@ export default function GeneralSettings() {
         </div>
         <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: "#666" }}>
-            메시지(JSON) - API 번호는 전송 시 <code>api_no</code>로 추가됩니다.
+            메시지(JSON) - API 번호는 헤더의 request code로 전송됩니다.
           </div>
           <Input.TextArea
             value={tcpMessageText}

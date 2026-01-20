@@ -12,6 +12,7 @@ const DEFAULT_MESSAGE = {
   type: "module",
   relative_path: "doosan_state.py",
 };
+const DEFAULT_API_NO = 4022;
 
 let isRunning = false;
 let currentSocket = null;
@@ -20,18 +21,28 @@ let testConfig = {
   host: DEFAULT_HOST,
   port: DEFAULT_PORT,
   message: DEFAULT_MESSAGE,
+  apiNo: DEFAULT_API_NO,
   intervalMs: 1000,
 };
 
-function buildPacket(jsonData) {
+let serial = 0;
+function buildPacket(code, jsonData) {
   const payloadStr = JSON.stringify(jsonData);
   const payloadBuf = Buffer.from(payloadStr, "utf8");
 
-  // AMR 프로토콜 형식: 헤더(16바이트) + payload
-  // 0x5A (1) + reserved (3) + length (4) + reserved (8) + payload
+  // Robokit NetProtocol: 헤더(16바이트) + payload
+  // byte 0: 0x5A
+  // byte 1: 0x01
+  // bytes 2-3: serial
+  // bytes 4-7: body length
+  // bytes 8-9: api code
+  // bytes 10-15: 0
   const header = Buffer.alloc(16);
   header.writeUInt8(0x5a, 0); // magic byte
+  header.writeUInt8(0x01, 1); // version/flag
+  header.writeUInt16BE(++serial & 0xffff, 2); // serial
   header.writeUInt32BE(payloadBuf.length, 4); // payload length
+  header.writeUInt16BE(code & 0xffff, 8); // api code
 
   return Buffer.concat([header, payloadBuf]);
 }
@@ -51,7 +62,7 @@ function parseResponse(buffer) {
   }
 }
 
-async function sendAndReceive(host, port, message, timeoutMs = 5000) {
+async function sendAndReceive(host, port, apiNo, message, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
     const socket = new net.Socket();
@@ -73,7 +84,7 @@ async function sendAndReceive(host, port, message, timeoutMs = 5000) {
     socket.setTimeout(timeoutMs);
 
     socket.connect(port, host, () => {
-      const packet = buildPacket(message);
+      const packet = buildPacket(apiNo, message);
       socket.write(packet);
     });
 
@@ -109,6 +120,7 @@ async function runTestLoop() {
       const result = await sendAndReceive(
         testConfig.host,
         testConfig.port,
+        testConfig.apiNo,
         testConfig.message,
         5000
       );
@@ -154,6 +166,7 @@ function start(config = {}) {
     host: config.host || DEFAULT_HOST,
     port: config.port || DEFAULT_PORT,
     message: config.message || DEFAULT_MESSAGE,
+    apiNo: Number(config.apiNo || DEFAULT_API_NO),
     intervalMs: config.intervalMs || 1000,
   };
   testResults = [];
