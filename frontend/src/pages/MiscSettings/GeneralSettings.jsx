@@ -295,6 +295,7 @@ export default function GeneralSettings() {
             onChange={(e) => setTcpApiNo(e.target.value)}
             style={{ width: 80 }}
             disabled={tcpTestRunning}
+            placeholder="ex) 4022"
           />
           {!tcpTestRunning ? (
             <Button type="primary" icon={<PlayCircleOutlined />} onClick={startTcpTest}>
@@ -308,7 +309,7 @@ export default function GeneralSettings() {
         </div>
         <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: "#666" }}>
-            메시지(JSON) - API 번호는 헤더의 request code로 전송됩니다.
+            메시지(JSON) - API 번호는 10진수 입력이며 헤더에 16진수로 전송됩니다.
           </div>
           <Input.TextArea
             value={tcpMessageText}

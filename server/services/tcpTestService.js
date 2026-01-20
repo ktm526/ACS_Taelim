@@ -26,6 +26,19 @@ let testConfig = {
 };
 
 let serial = 0;
+function parseApiNo(raw) {
+  if (raw === null || raw === undefined) return DEFAULT_API_NO;
+  const text = String(raw).trim();
+  if (!text.length) return DEFAULT_API_NO;
+  // 기본은 10진수 입력. 0x로 시작하면 16진수로 처리.
+  if (text.startsWith("0x") || text.startsWith("0X")) {
+    const parsedHex = Number.parseInt(text.slice(2), 16);
+    return Number.isFinite(parsedHex) ? parsedHex : DEFAULT_API_NO;
+  }
+  const parsedDec = Number.parseInt(text, 10);
+  return Number.isFinite(parsedDec) ? parsedDec : DEFAULT_API_NO;
+}
+
 function buildPacket(code, jsonData) {
   const payloadStr = JSON.stringify(jsonData);
   const payloadBuf = Buffer.from(payloadStr, "utf8");
@@ -85,6 +98,10 @@ async function sendAndReceive(host, port, apiNo, message, timeoutMs = 5000) {
 
     socket.connect(port, host, () => {
       const packet = buildPacket(apiNo, message);
+      const headerHex = packet.slice(0, 16).toString("hex").toUpperCase().match(/.{1,2}/g)?.join(" ");
+      console.log(
+        `[TCP Test] send header=${headerHex} apiNo=${apiNo} len=${packet.length - 16}`
+      );
       socket.write(packet);
     });
 
@@ -166,7 +183,7 @@ function start(config = {}) {
     host: config.host || DEFAULT_HOST,
     port: config.port || DEFAULT_PORT,
     message: config.message || DEFAULT_MESSAGE,
-    apiNo: Number(config.apiNo || DEFAULT_API_NO),
+    apiNo: parseApiNo(config.apiNo),
     intervalMs: config.intervalMs || 1000,
   };
   testResults = [];
