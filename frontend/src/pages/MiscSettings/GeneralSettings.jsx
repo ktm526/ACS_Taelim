@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Card, Descriptions, Spin, Alert, Button, Divider, Tag, Input, Table } from "antd";
+import { Card, Descriptions, Spin, Alert, Button, Divider, Tag, Input, Table, Select } from "antd";
 import { ReloadOutlined, PlayCircleOutlined, StopOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useApiClient } from "@/hooks/useApiClient";
@@ -12,9 +12,15 @@ export default function GeneralSettings() {
   // TCP 테스트 상태
   const [tcpTestRunning, setTcpTestRunning] = useState(false);
   const [tcpTestResults, setTcpTestResults] = useState([]);
-  const [tcpHost, setTcpHost] = useState("192.168.4.22");
+  const [tcpHost, setTcpHost] = useState("");
   const [tcpPort, setTcpPort] = useState("19207");
+  const [tcpApiNo, setTcpApiNo] = useState("4022");
   const pollRef = useRef(null);
+  const [robotOptions, setRobotOptions] = useState([]);
+  const [tcpMessageText, setTcpMessageText] = useState(
+    JSON.stringify({ type: "module", relative_path: "doosan_state.py" }, null, 2)
+  );
+  const [tcpMessageError, setTcpMessageError] = useState(null);
 
   // Settings (PLC → DB) 조회
   const settingsQ = useQuery({
@@ -60,12 +66,51 @@ export default function GeneralSettings() {
     };
   }, [tcpTestRunning, api]);
 
+  // AMR 목록 로드
+  useEffect(() => {
+    let mounted = true;
+    const fetchRobots = async () => {
+      try {
+        const res = await api.get("/api/robots");
+        if (!mounted) return;
+        const list = Array.isArray(res) ? res : res?.data || [];
+        const options = list
+          .filter((r) => r?.ip)
+          .map((r) => ({
+            label: `${r.name ?? "AMR"} (${r.ip})`,
+            value: r.ip,
+          }));
+        setRobotOptions(options);
+        if (!tcpHost && options.length) {
+          setTcpHost(options[0].value);
+        }
+      } catch (e) {
+        console.warn("AMR 목록 조회 실패:", e);
+      }
+    };
+    fetchRobots();
+    return () => {
+      mounted = false;
+    };
+  }, [api, tcpHost]);
+
   const startTcpTest = async () => {
     try {
+      let message;
+      try {
+        message = JSON.parse(tcpMessageText);
+        setTcpMessageError(null);
+      } catch {
+        setTcpMessageError("메시지 JSON 형식이 올바르지 않습니다.");
+        return;
+      }
+      if (tcpApiNo) {
+        message = { ...message, api_no: Number(tcpApiNo) };
+      }
       await api.post("/api/plc/tcp-test/start", {
         host: tcpHost,
         port: Number(tcpPort),
-        message: { type: "module", relative_path: "doosan_state.py" },
+        message,
         intervalMs: 1000,
       });
       setTcpTestRunning(true);
@@ -228,17 +273,28 @@ export default function GeneralSettings() {
         bordered
       >
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-          <span>Host:</span>
-          <Input
-            value={tcpHost}
-            onChange={(e) => setTcpHost(e.target.value)}
-            style={{ width: 150 }}
+          <span>AMR Host:</span>
+          <Select
+            value={tcpHost || undefined}
+            onChange={(value) => setTcpHost(value)}
+            options={robotOptions}
+            placeholder="AMR IP 선택"
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 220 }}
             disabled={tcpTestRunning}
           />
           <span>Port:</span>
           <Input
             value={tcpPort}
             onChange={(e) => setTcpPort(e.target.value)}
+            style={{ width: 80 }}
+            disabled={tcpTestRunning}
+          />
+          <span>API:</span>
+          <Input
+            value={tcpApiNo}
+            onChange={(e) => setTcpApiNo(e.target.value)}
             style={{ width: 80 }}
             disabled={tcpTestRunning}
           />
@@ -252,8 +308,17 @@ export default function GeneralSettings() {
             </Button>
           )}
         </div>
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 12 }}>
-          메시지: <code>{JSON.stringify({ type: "module", relative_path: "doosan_state.py" })}</code>
+        <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: "#666" }}>
+            메시지(JSON) - API 번호는 전송 시 <code>api_no</code>로 추가됩니다.
+          </div>
+          <Input.TextArea
+            value={tcpMessageText}
+            onChange={(e) => setTcpMessageText(e.target.value)}
+            rows={4}
+            disabled={tcpTestRunning}
+          />
+          {tcpMessageError && <Tag color="red">{tcpMessageError}</Tag>}
         </div>
         <Table
           dataSource={[...tcpTestResults].reverse()}
