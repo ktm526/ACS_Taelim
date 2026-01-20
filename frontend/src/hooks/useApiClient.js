@@ -1,8 +1,10 @@
 // src/hooks/useApiClient.js
 import { useCallback, useMemo } from 'react';
 
-// 백엔드 베이스 URL (없으면 로컬호스트로 폴백)
-const CORE = import.meta.env.VITE_CORE_BASE_URL || '';
+// 백엔드 베이스 URL (dev는 로컬 서버로 폴백)
+const CORE =
+  import.meta.env.VITE_CORE_BASE_URL ||
+  (import.meta.env.DEV ? 'http://localhost:4000' : '');
 
 export function useApiClient() {
     const apiRequest = useCallback(async (method, url, data = null) => {
