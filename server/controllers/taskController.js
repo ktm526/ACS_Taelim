@@ -10,7 +10,11 @@ exports.create = async (req, res) => {
   const task = await Task.create(
     {
       robot_id,
-      steps: steps.map((s, i) => ({ ...s, seq: i })),
+      steps: steps.map((s, i) => ({
+        ...s,
+        seq: i,
+        payload: typeof s.payload === 'string' ? s.payload : JSON.stringify(s.payload ?? {}),
+      })),
     },
     { include: [{ model: TaskStep, as: 'steps' }] },
   );
