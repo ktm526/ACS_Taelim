@@ -1,12 +1,14 @@
 const DeviceInStocker = require('../models/DeviceInStocker');
 const DeviceGrinder = require('../models/DeviceGrinder');
 const DeviceOutStocker = require('../models/DeviceOutStocker');
+const DeviceConveyor = require('../models/DeviceConveyor');
 
 const SLOT_SIDES = ['L', 'R'];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
 const GRINDER_INDEXES = [1, 2, 3, 4, 5, 6];
 const OUT_SIDES = ['L1', 'L2', 'R1', 'R2'];
 const OUT_ROWS = [1, 2, 3, 4, 5, 6];
+const CONVEYOR_INDEXES = [1, 2];
 const POSITIONS = ['L', 'R'];
 const SIGNAL_KEYS = [
   'input_ready_id',
@@ -16,6 +18,17 @@ const SIGNAL_KEYS = [
   'input_done_id',
   'output_in_progress_id',
   'output_done_id',
+];
+const CONVEYOR_FIELDS = [
+  'stop_id',
+  'input_ready_id',
+  'input_qty_1_id',
+  'input_qty_4_id',
+  'stop_request_id',
+  'input_in_progress_id',
+  'input_done_id',
+  'product_no_id',
+  'amr_pos',
 ];
 
 function normalizeText(value) {
@@ -87,11 +100,22 @@ function buildDefaultOutStocker() {
       };
     }
     sides[side] = {
+      amr_pos: null,
       bypass_id: null,
       rows,
     };
   }
   return sides;
+}
+
+function buildDefaultConveyors() {
+  return CONVEYOR_INDEXES.map((index) => {
+    const item = { index };
+    for (const key of CONVEYOR_FIELDS) {
+      item[key] = null;
+    }
+    return item;
+  });
 }
 
 function safeParseJson(value, fallback) {
@@ -176,11 +200,25 @@ function normalizeOutStocker(input) {
       };
     }
     base[side] = {
+      amr_pos: normalizeText(sourceSide.amr_pos),
       bypass_id: normalizeText(sourceSide.bypass_id),
       rows,
     };
   }
   return base;
+}
+
+function normalizeConveyors(input) {
+  const base = buildDefaultConveyors();
+  if (!Array.isArray(input)) return base;
+  return base.map((defaultItem, idx) => {
+    const item = input[idx] || {};
+    const out = { index: defaultItem.index };
+    for (const key of CONVEYOR_FIELDS) {
+      out[key] = normalizeText(item[key]);
+    }
+    return out;
+  });
 }
 
 async function ensureInstocker() {
@@ -201,6 +239,14 @@ async function ensureGrinder() {
 
 async function ensureOutStocker() {
   const [row] = await DeviceOutStocker.findOrCreate({
+    where: { id: 1 },
+    defaults: { id: 1 },
+  });
+  return row;
+}
+
+async function ensureConveyor() {
+  const [row] = await DeviceConveyor.findOrCreate({
     where: { id: 1 },
     defaults: { id: 1 },
   });
@@ -322,6 +368,42 @@ exports.updateOutStocker = async (req, res) => {
     });
   } catch (e) {
     console.error('[Device.updateOutStocker]', e);
+    res.status(400).json({ success: false, message: e.message });
+  }
+};
+
+exports.getConveyor = async (req, res) => {
+  try {
+    const row = await ensureConveyor();
+    const conveyors = safeParseJson(row.conveyors, buildDefaultConveyors());
+    res.json({
+      success: true,
+      data: {
+        id: row.id,
+        conveyors: normalizeConveyors(conveyors),
+      },
+    });
+  } catch (e) {
+    console.error('[Device.getConveyor]', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+exports.updateConveyor = async (req, res) => {
+  try {
+    const row = await ensureConveyor();
+    const payload = req.body || {};
+    const conveyors = normalizeConveyors(payload.conveyors);
+    await row.update({ conveyors: JSON.stringify(conveyors) });
+    res.json({
+      success: true,
+      data: {
+        id: row.id,
+        conveyors,
+      },
+    });
+  } catch (e) {
+    console.error('[Device.updateConveyor]', e);
     res.status(400).json({ success: false, message: e.message });
   }
 };

@@ -2,6 +2,7 @@ const ModbusRTU = require("modbus-serial");
 const DeviceInStocker = require("../models/DeviceInStocker");
 const DeviceGrinder = require("../models/DeviceGrinder");
 const DeviceOutStocker = require("../models/DeviceOutStocker");
+const DeviceConveyor = require("../models/DeviceConveyor");
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
@@ -76,10 +77,11 @@ function collectSideTargets(side) {
 }
 
 async function collectIds({ side = "ALL" } = {}) {
-  const [instocker, grinder, outstocker] = await Promise.all([
+  const [instocker, grinder, outstocker, conveyor] = await Promise.all([
     DeviceInStocker.findByPk(1),
     DeviceGrinder.findByPk(1),
     DeviceOutStocker.findByPk(1),
+    DeviceConveyor.findByPk(1),
   ]);
 
   const slots = safeParse(instocker?.slots, {});
@@ -128,6 +130,21 @@ async function collectIds({ side = "ALL" } = {}) {
       const rowData = sideData.rows?.[row] || {};
       ids.push(rowData.load_ready_id, rowData.jig_state_id, rowData.model_no_id);
     });
+  });
+
+  // 컨베이어 신호/제품정보
+  const conveyors = safeParse(conveyor?.conveyors, []);
+  conveyors.forEach((item) => {
+    ids.push(
+      item?.stop_id,
+      item?.input_ready_id,
+      item?.input_qty_1_id,
+      item?.input_qty_4_id,
+      item?.stop_request_id,
+      item?.input_in_progress_id,
+      item?.input_done_id,
+      item?.product_no_id
+    );
   });
 
   const normalizeList = (list) =>

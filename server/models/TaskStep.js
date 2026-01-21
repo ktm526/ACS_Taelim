@@ -22,7 +22,7 @@ const TaskStep = sequelize.define('TaskStep', {
     // NAV: { dest: 'A4' }
     // MANI_WORK: { CMD_ID: 1, CMD_FROM: 33, CMD_TO: 43 }
     // PLC_WRITE: { PLC_BIT: B5001, PLC_DATA: 1 }
-    // PLC_READ 
+    // PLC_READ: { PLC_ID: "2224.1", EXPECTED: 1 }
     status: {
         type: DataTypes.ENUM('PENDING', 'RUNNING', 'DONE', 'FAILED'),
         defaultValue: 'PENDING'

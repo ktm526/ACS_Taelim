@@ -1,5 +1,5 @@
 // src/pages/Home/Canvas.jsx
-import React, { useEffect, useRef, useCallback, useState } from "react";
+import React, { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import {
   Card,
   Button,
@@ -10,8 +10,11 @@ import {
   Tag,
   message,
   theme,
+  List,
+  Input,
+  Select,
 } from "antd";
-import { SettingOutlined } from "@ant-design/icons";
+import { SettingOutlined, DownOutlined, UpOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useAtom } from "jotai";
 import { mapsQueryAtom, robotsQueryAtom, selectedMapAtom } from "@/state/atoms";
@@ -157,6 +160,43 @@ export default function Canvas() {
   });
 
   const robotTasks = robotTasksQuery.data || {};
+
+  // 태스크 리스트 조회
+  const tasksQuery = useQuery({
+    queryKey: ["tasksList"],
+    queryFn: async () => {
+      const response = await fetch(`${CORE}/api/tasks`);
+      if (!response.ok) throw new Error("Failed to fetch tasks");
+      return response.json();
+    },
+    refetchInterval: 5000,
+    staleTime: 5000,
+  });
+
+  const tasks = tasksQuery.data ?? [];
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskPanelOpen, setTaskPanelOpen] = useState(true);
+  const [taskRobotId, setTaskRobotId] = useState(null);
+  const [taskSteps, setTaskSteps] = useState([
+    { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", plcId: "", plcData: "", plcExpected: "" },
+  ]);
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
+
+  const stationOptions = useMemo(() => {
+    try {
+      const parsed = safeParse(selMap?.stations, {}).stations || [];
+      return parsed.map((station) => {
+        if (typeof station === "string") {
+          return { label: station, value: station };
+        }
+        const value = station.name ?? station.station_name ?? station.id ?? "";
+        const label = station.name ?? station.station_name ?? station.id ?? String(value);
+        return { label: String(label), value: String(value) };
+      });
+    } catch {
+      return [];
+    }
+  }, [selMap]);
 
   // 펄스 효과 색상과 조건 결정
   const getPulseEffect = useCallback((robot) => {
@@ -628,6 +668,104 @@ export default function Canvas() {
         >
           <SignalOverlay />
 
+          {/* 태스크 리스트 패널 */}
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              zIndex: 5,
+            }}
+          >
+            {!taskPanelOpen ? (
+              <Button
+                type="primary"
+                size="small"
+                onClick={() => setTaskPanelOpen(true)}
+              >
+                태스크 보기
+              </Button>
+            ) : (
+              <Card
+                size="small"
+                title="태스크"
+                extra={
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Button size="small" onClick={() => setTaskPanelOpen(false)}>
+                      접기
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        if (stationOptions.length) {
+                          setTaskSteps((prev) =>
+                            prev.map((step) =>
+                              step.type === "NAV" && !step.dest
+                                ? { ...step, dest: stationOptions[0].value }
+                                : step
+                            )
+                          );
+                        }
+                        setTaskModalOpen(true);
+                      }}
+                    >
+                      추가
+                    </Button>
+                  </div>
+                }
+                style={{ width: 320 }}
+                styles={{ body: { padding: 8 } }}
+              >
+                {tasksQuery.isLoading ? (
+                  <Spin size="small" />
+                ) : tasksQuery.isError ? (
+                  <Alert type="error" message="태스크 조회 실패" />
+                ) : (
+                  <List
+                    size="small"
+                    dataSource={tasks}
+                    style={{ maxHeight: 260, overflowY: "auto" }}
+                    locale={{ emptyText: "태스크 없음" }}
+                    renderItem={(task) => (
+                      <List.Item
+                        key={task.id}
+                        actions={[
+                          <Button
+                            key="del"
+                            size="small"
+                            danger
+                            onClick={async () => {
+                              try {
+                                await fetch(`${CORE}/api/tasks/${task.id}`, {
+                                  method: "DELETE",
+                                });
+                                tasksQuery.refetch();
+                                message.success("태스크 삭제 완료");
+                              } catch {
+                                message.error("태스크 삭제 실패");
+                              }
+                            }}
+                          >
+                            삭제
+                          </Button>,
+                        ]}
+                      >
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>
+                            #{task.id} / 로봇 {task.robot_id}
+                          </span>
+                          <span style={{ fontSize: 11, color: "#666" }}>
+                            {task.status} · seq {task.current_seq ?? 0}
+                          </span>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                )}
+              </Card>
+            )}
+          </div>
+
           <canvas
             ref={canvRef}
             style={{
@@ -749,6 +887,253 @@ export default function Canvas() {
             ))}
           </Radio.Group>
         )}
+      </Modal>
+
+      {/* 태스크 추가 모달 */}
+      <Modal
+        title="태스크 추가"
+        open={taskModalOpen}
+        okText="추가"
+        cancelText="취소"
+        confirmLoading={taskSubmitting}
+        onOk={async () => {
+          try {
+            if (!taskRobotId) {
+              message.warning("로봇을 선택하세요.");
+              return;
+            }
+            const steps = taskSteps.map((step) => {
+              if (step.type === "NAV") {
+                return { type: "NAV", payload: { dest: step.dest || "" } };
+              }
+              if (step.type === "MANI_WORK") {
+                return {
+                  type: "MANI_WORK",
+                  payload: {
+                    CMD_ID: Number(step.cmdId) || 0,
+                    CMD_FROM: Number(step.cmdFrom) || 0,
+                    CMD_TO: Number(step.cmdTo) || 0,
+                  },
+                };
+              }
+              if (step.type === "PLC_WRITE") {
+                return {
+                  type: "PLC_WRITE",
+                  payload: {
+                    PLC_BIT: step.plcId || "",
+                    PLC_DATA: Number(step.plcData) || 0,
+                  },
+                };
+              }
+              if (step.type === "PLC_READ") {
+                return {
+                  type: "PLC_READ",
+                  payload: {
+                    PLC_ID: step.plcId || "",
+                    EXPECTED: Number(step.plcExpected) || 0,
+                  },
+                };
+              }
+              return { type: step.type, payload: {} };
+            });
+            setTaskSubmitting(true);
+            await fetch(`${CORE}/api/tasks`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ robot_id: taskRobotId, steps }),
+            });
+            message.success("태스크가 추가되었습니다.");
+            setTaskModalOpen(false);
+            tasksQuery.refetch();
+          } catch {
+            message.error("태스크 추가 실패");
+          } finally {
+            setTaskSubmitting(false);
+          }
+        }}
+        onCancel={() => setTaskModalOpen(false)}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <div>
+            <div style={{ marginBottom: 4 }}>로봇</div>
+            <Select
+              value={taskRobotId}
+              onChange={setTaskRobotId}
+              options={robots.map((r) => ({
+                label: `${r.name ?? r.id} (${r.id})`,
+                value: r.id,
+              }))}
+              placeholder="로봇 선택"
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span>스텝 목록</span>
+              <Button
+                size="small"
+                onClick={() =>
+                  setTaskSteps((prev) => [
+                    ...prev,
+                    { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", plcId: "", plcData: "", plcExpected: "" },
+                  ])
+                }
+              >
+                스텝 추가
+              </Button>
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {taskSteps.map((step, idx) => (
+                <div
+                  key={`step-${idx}`}
+                  style={{
+                    border: "1px solid #e8e8e8",
+                    borderRadius: 6,
+                    padding: 8,
+                    background: "#fafafa",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>#{idx + 1}</span>
+                    <Select
+                      size="small"
+                      value={step.type}
+                      onChange={(value) =>
+                        setTaskSteps((prev) =>
+                          prev.map((s, i) => (i === idx ? { ...s, type: value } : s))
+                        )
+                      }
+                      options={[
+                        { label: "이동(NAV)", value: "NAV" },
+                        { label: "매니퓰레이터(MANI_WORK)", value: "MANI_WORK" },
+                        { label: "PLC 쓰기(PLC_WRITE)", value: "PLC_WRITE" },
+                        { label: "PLC 읽기(PLC_READ)", value: "PLC_READ" },
+                      ]}
+                      style={{ width: 220 }}
+                    />
+                    <Button
+                      size="small"
+                      danger
+                      onClick={() =>
+                        setTaskSteps((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      삭제
+                    </Button>
+                  </div>
+                  {step.type === "NAV" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 6 }}>
+                      <span>목적지</span>
+                      <Select
+                        size="small"
+                        value={step.dest || undefined}
+                        onChange={(value) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, dest: value } : s))
+                          )
+                        }
+                        options={stationOptions}
+                        showSearch
+                        allowClear
+                        optionFilterProp="label"
+                        placeholder="스테이션 선택"
+                      />
+                    </div>
+                  )}
+                  {step.type === "MANI_WORK" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 1fr 80px 1fr", gap: 6 }}>
+                      <span>CMD_ID</span>
+                      <Input
+                        size="small"
+                        value={step.cmdId}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, cmdId: e.target.value } : s))
+                          )
+                        }
+                        placeholder="숫자"
+                      />
+                      <span>CMD_FROM</span>
+                      <Input
+                        size="small"
+                        value={step.cmdFrom}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, cmdFrom: e.target.value } : s))
+                          )
+                        }
+                        placeholder="숫자"
+                      />
+                      <span>CMD_TO</span>
+                      <Input
+                        size="small"
+                        value={step.cmdTo}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, cmdTo: e.target.value } : s))
+                          )
+                        }
+                        placeholder="숫자"
+                      />
+                    </div>
+                  )}
+                  {step.type === "PLC_WRITE" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 1fr", gap: 6 }}>
+                      <span>ID</span>
+                      <Input
+                        size="small"
+                        value={step.plcId}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, plcId: e.target.value } : s))
+                          )
+                        }
+                        placeholder="예: 5001.0"
+                      />
+                      <span>값</span>
+                      <Input
+                        size="small"
+                        value={step.plcData}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, plcData: e.target.value } : s))
+                          )
+                        }
+                        placeholder="숫자"
+                      />
+                    </div>
+                  )}
+                  {step.type === "PLC_READ" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 1fr", gap: 6 }}>
+                      <span>ID</span>
+                      <Input
+                        size="small"
+                        value={step.plcId}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, plcId: e.target.value } : s))
+                          )
+                        }
+                        placeholder="예: 2224.1"
+                      />
+                      <span>기대값</span>
+                      <Input
+                        size="small"
+                        value={step.plcExpected}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, plcExpected: e.target.value } : s))
+                          )
+                        }
+                        placeholder="숫자"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </Modal>
 
       {/* 패스워드 확인 모달 */}

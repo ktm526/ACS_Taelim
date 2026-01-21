@@ -11,4 +11,7 @@ router.put('/grinder', c.updateGrinder);      // PUT /api/devices/grinder
 router.get('/outstocker', c.getOutStocker);   // GET /api/devices/outstocker
 router.put('/outstocker', c.updateOutStocker);// PUT /api/devices/outstocker
 
+router.get('/conveyor', c.getConveyor);       // GET /api/devices/conveyor
+router.put('/conveyor', c.updateConveyor);    // PUT /api/devices/conveyor
+
 module.exports = router;

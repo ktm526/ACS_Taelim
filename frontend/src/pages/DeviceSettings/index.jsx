@@ -16,6 +16,17 @@ const OUT_FIELDS = [
   { key: "jig_state_id", label: "공지그 상태" },
   { key: "model_no_id", label: "모델 번호" },
 ];
+const CONVEYOR_INDEXES = [1, 2];
+const CONVEYOR_SIGNAL_FIELDS = [
+  { key: "stop_id", label: "정지중" },
+  { key: "input_ready_id", label: "투입가능" },
+  { key: "input_qty_1_id", label: "투입수량1" },
+  { key: "input_qty_4_id", label: "투입수량4" },
+  { key: "stop_request_id", label: "정지요청" },
+  { key: "input_in_progress_id", label: "투입중" },
+  { key: "input_done_id", label: "투입완료" },
+  { key: "product_no_id", label: "제품 번호" },
+];
 const SIGNALS = [
   { key: "input_ready_id", label: "투입 가능" },
   { key: "output_ready_id", label: "배출 가능" },
@@ -84,11 +95,22 @@ function createDefaultOutStocker() {
       };
     });
     sides[side] = {
+      amr_pos: null,
       bypass_id: null,
       rows,
     };
   });
   return sides;
+}
+
+function createDefaultConveyors() {
+  return CONVEYOR_INDEXES.map((index) => {
+    const item = { index, amr_pos: null };
+    CONVEYOR_SIGNAL_FIELDS.forEach((field) => {
+      item[field.key] = null;
+    });
+    return item;
+  });
 }
 
 function normalizeText(value) {
@@ -137,9 +159,11 @@ export default function DeviceSettings() {
   const [savingInstocker, setSavingInstocker] = useState(false);
   const [savingGrinder, setSavingGrinder] = useState(false);
   const [savingOutstocker, setSavingOutstocker] = useState(false);
+  const [savingConveyor, setSavingConveyor] = useState(false);
   const [instockerSavedAt, setInstockerSavedAt] = useState(null);
   const [grinderSavedAt, setGrinderSavedAt] = useState(null);
   const [outstockerSavedAt, setOutstockerSavedAt] = useState(null);
+  const [conveyorSavedAt, setConveyorSavedAt] = useState(null);
   const [plcValues, setPlcValues] = useState({});
   const fileInputRef = useRef(null);
   const [instocker, setInstocker] = useState({
@@ -152,6 +176,18 @@ export default function DeviceSettings() {
   });
   const [outstocker, setOutstocker] = useState({
     sides: createDefaultOutStocker(),
+  });
+  const [conveyor, setConveyor] = useState({
+    conveyors: createDefaultConveyors(),
+  });
+  const [collapseKeys, setCollapseKeys] = useState(() => {
+    try {
+      const raw = localStorage.getItem("deviceSettingsCollapseKeys");
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   });
 
   const slotKeys = useMemo(() => {
@@ -178,10 +214,11 @@ export default function DeviceSettings() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [instockerRes, grinderRes, outstockerRes] = await Promise.all([
+        const [instockerRes, grinderRes, outstockerRes, conveyorRes] = await Promise.all([
           apiClient.get("/api/devices/instocker"),
           apiClient.get("/api/devices/grinder"),
           apiClient.get("/api/devices/outstocker"),
+          apiClient.get("/api/devices/conveyor"),
         ]);
         if (instockerRes?.data) {
           setInstocker({
@@ -198,6 +235,11 @@ export default function DeviceSettings() {
         if (outstockerRes?.data) {
           setOutstocker({
             sides: outstockerRes.data.sides || createDefaultOutStocker(),
+          });
+        }
+        if (conveyorRes?.data) {
+          setConveyor({
+            conveyors: conveyorRes.data.conveyors || createDefaultConveyors(),
           });
         }
       } catch (error) {
@@ -246,8 +288,13 @@ export default function DeviceSettings() {
         });
       });
     });
+    conveyor.conveyors.forEach((item) => {
+      CONVEYOR_SIGNAL_FIELDS.forEach((field) => {
+        pushId(item?.[field.key]);
+      });
+    });
     return Array.from(new Set(ids));
-  }, [instocker, grinder, outstocker, slotKeys]);
+  }, [instocker, grinder, outstocker, conveyor, slotKeys]);
 
   useEffect(() => {
     let isActive = true;
@@ -276,6 +323,15 @@ export default function DeviceSettings() {
       if (timer) clearInterval(timer);
     };
   }, [apiClient, signalIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "deviceSettingsCollapseKeys",
+        JSON.stringify(collapseKeys)
+      );
+    } catch {}
+  }, [collapseKeys]);
 
   const handleSlotChange = (slotKey, field, value) => {
     setInstocker((prev) => ({
@@ -359,6 +415,14 @@ export default function DeviceSettings() {
     }));
   };
 
+  const handleConveyorChange = (index, field, value) => {
+    setConveyor((prev) => ({
+      conveyors: prev.conveyors.map((item) =>
+        item.index === index ? { ...item, [field]: normalizeText(value) } : item
+      ),
+    }));
+  };
+
   const saveInstocker = async () => {
     setSavingInstocker(true);
     try {
@@ -398,6 +462,20 @@ export default function DeviceSettings() {
       message.error("아웃스토커 설정 저장에 실패했습니다.");
     } finally {
       setSavingOutstocker(false);
+    }
+  };
+
+  const saveConveyor = async () => {
+    setSavingConveyor(true);
+    try {
+      await apiClient.put("/api/devices/conveyor", conveyor);
+      message.success("컨베이어 설정이 저장되었습니다.");
+      setConveyorSavedAt(new Date());
+    } catch (error) {
+      console.error("컨베이어 저장 실패:", error);
+      message.error("컨베이어 설정 저장에 실패했습니다.");
+    } finally {
+      setSavingConveyor(false);
     }
   };
 
@@ -508,6 +586,12 @@ export default function DeviceSettings() {
       rows.push([
         "outstocker_side",
         side,
+        "amr_pos",
+        outstocker.sides?.[side]?.amr_pos ?? "",
+      ]);
+      rows.push([
+        "outstocker_side",
+        side,
         "bypass_id",
         outstocker.sides?.[side]?.bypass_id ?? "",
       ]);
@@ -520,6 +604,22 @@ export default function DeviceSettings() {
             outstocker.sides?.[side]?.rows?.[row]?.[field.key] ?? "",
           ]);
         });
+      });
+    });
+    conveyor.conveyors.forEach((item) => {
+      rows.push([
+        "conveyor",
+        String(item.index),
+        "amr_pos",
+        item.amr_pos ?? "",
+      ]);
+      CONVEYOR_SIGNAL_FIELDS.forEach((field) => {
+        rows.push([
+          "conveyor",
+          String(item.index),
+          field.key,
+          item[field.key] ?? "",
+        ]);
       });
     });
     return rows;
@@ -555,6 +655,10 @@ export default function DeviceSettings() {
     const nextOutstocker = {
       ...outstocker,
       sides: { ...outstocker.sides },
+    };
+    const nextConveyor = {
+      ...conveyor,
+      conveyors: conveyor.conveyors.map((item) => ({ ...item })),
     };
 
     rows.forEach((row) => {
@@ -617,12 +721,18 @@ export default function DeviceSettings() {
             },
           },
         };
+      } else if (category === "conveyor") {
+        const index = Number(target);
+        const conveyorItem = nextConveyor.conveyors.find((c) => c.index === index);
+        if (!conveyorItem) return;
+        conveyorItem[field] = normalizedValue;
       }
     });
 
     setInstocker(nextInstocker);
     setGrinder(nextGrinder);
     setOutstocker(nextOutstocker);
+    setConveyor(nextConveyor);
   };
 
   const handleImportCsv = (file) => {
@@ -850,116 +960,6 @@ export default function DeviceSettings() {
       ),
     },
     {
-      key: "outstocker",
-      label: (
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontWeight: 600, fontSize: 15 }}>아웃스토커 설정</span>
-          {outstockerSavedAt && (
-            <Tag color="green" style={{ margin: 0 }}>
-              저장됨 {outstockerSavedAt.toLocaleTimeString("ko-KR")}
-            </Tag>
-          )}
-        </div>
-      ),
-      extra: (
-        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-          <Button size="small" onClick={handleExportCsv}>CSV 내보내기</Button>
-          <Button size="small" onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
-          <Button size="small" type="primary" onClick={saveOutstocker} loading={savingOutstocker}>
-            저장
-          </Button>
-        </div>
-      ),
-      children: (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-          {OUT_SIDES.map((side) => (
-            <div
-              key={side}
-              style={{
-                border: "1px solid #e8e8e8",
-                borderRadius: 8,
-                padding: 12,
-                background: "#fff",
-              }}
-            >
-              <div
-                style={{
-                  fontWeight: 600,
-                  fontSize: 14,
-                  marginBottom: 8,
-                  borderBottom: "1px solid #f0f0f0",
-                  paddingBottom: 8,
-                }}
-              >
-                {getOutSideLabel(side)}
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "70px 1fr 50px",
-                  gap: 4,
-                  alignItems: "center",
-                  fontSize: 12,
-                  marginBottom: 8,
-                }}
-              >
-                <span>bypass</span>
-                <Input
-                  size="small"
-                  value={outstocker.sides?.[side]?.bypass_id ?? ""}
-                  onChange={(e) => handleOutstockerSideChange(side, "bypass_id", e.target.value)}
-                  placeholder="ID"
-                />
-                {renderValueTag(outstocker.sides?.[side]?.bypass_id ? plcValues?.[outstocker.sides?.[side]?.bypass_id] : null)}
-              </div>
-
-              <Divider style={{ margin: "8px 0" }} />
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "30px repeat(3, 1fr)",
-                  gap: 4,
-                  alignItems: "center",
-                  fontSize: 11,
-                }}
-              >
-                <span style={{ fontWeight: 600 }}>#</span>
-                {OUT_FIELDS.map((f) => (
-                  <span key={f.key} style={{ fontWeight: 600 }}>{f.label}</span>
-                ))}
-                {OUT_ROWS.map((row) => (
-                  <React.Fragment key={row}>
-                    <span style={{ fontWeight: 500 }}>{row}</span>
-                    {OUT_FIELDS.map((field) => {
-                      const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
-                      return (
-                        <div key={field.key} style={{ display: "flex", gap: 2, alignItems: "center" }}>
-                          <Input
-                            size="small"
-                            value={value ?? ""}
-                            onChange={(e) => handleOutstockerRowChange(side, row, field.key, e.target.value)}
-                            placeholder="ID"
-                            style={{ flex: 1 }}
-                          />
-                          <Tag
-                            color={value && plcValues?.[value] != null ? "blue" : "default"}
-                            style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
-                          >
-                            {value ? plcValues?.[value] ?? "-" : "-"}
-                          </Tag>
-                        </div>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ),
-    },
-    {
       key: "grinder",
       label: (
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1148,6 +1148,232 @@ export default function DeviceSettings() {
           </div>
       ),
     },
+    {
+      key: "outstocker",
+      label: (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>아웃스토커 설정</span>
+          {outstockerSavedAt && (
+            <Tag color="green" style={{ margin: 0 }}>
+              저장됨 {outstockerSavedAt.toLocaleTimeString("ko-KR")}
+            </Tag>
+          )}
+        </div>
+      ),
+      extra: (
+        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" onClick={handleExportCsv}>CSV 내보내기</Button>
+          <Button size="small" onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
+          <Button size="small" type="primary" onClick={saveOutstocker} loading={savingOutstocker}>
+            저장
+          </Button>
+        </div>
+      ),
+      children: (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          {OUT_SIDES.map((side) => (
+            <div
+              key={side}
+              style={{
+                border: "1px solid #e8e8e8",
+                borderRadius: 8,
+                padding: 12,
+                background: "#fff",
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 8,
+                  borderBottom: "1px solid #f0f0f0",
+                  paddingBottom: 8,
+                }}
+              >
+                {getOutSideLabel(side)}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "70px 1fr 50px",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <span>bypass</span>
+                <Input
+                  size="small"
+                  value={outstocker.sides?.[side]?.bypass_id ?? ""}
+                  onChange={(e) => handleOutstockerSideChange(side, "bypass_id", e.target.value)}
+                  placeholder="ID"
+                />
+                {renderValueTag(outstocker.sides?.[side]?.bypass_id ? plcValues?.[outstocker.sides?.[side]?.bypass_id] : null)}
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "70px 1fr",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <span>AMR Pos</span>
+                <Select
+                  size="small"
+                  showSearch
+                  allowClear
+                  value={outstocker.sides?.[side]?.amr_pos ?? null}
+                  onChange={(value) => handleOutstockerSideChange(side, "amr_pos", value)}
+                  options={stationOptions}
+                  filterOption={(input, option) =>
+                    (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                  }
+                  placeholder="스테이션"
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "30px repeat(3, 1fr)",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 11,
+                }}
+              >
+                <span style={{ fontWeight: 600 }}>#</span>
+                {OUT_FIELDS.map((f) => (
+                  <span key={f.key} style={{ fontWeight: 600 }}>{f.label}</span>
+                ))}
+                {OUT_ROWS.map((row) => (
+                  <React.Fragment key={row}>
+                    <span style={{ fontWeight: 500 }}>{row}</span>
+                    {OUT_FIELDS.map((field) => {
+                      const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
+                      return (
+                        <div key={field.key} style={{ display: "flex", gap: 2, alignItems: "center" }}>
+                          <Input
+                            size="small"
+                            value={value ?? ""}
+                            onChange={(e) => handleOutstockerRowChange(side, row, field.key, e.target.value)}
+                            placeholder="ID"
+                            style={{ flex: 1 }}
+                          />
+                          <Tag
+                            color={value && plcValues?.[value] != null ? "blue" : "default"}
+                            style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
+                          >
+                            {value ? plcValues?.[value] ?? "-" : "-"}
+                          </Tag>
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "conveyor",
+      label: (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>컨베이어 설정</span>
+          {conveyorSavedAt && (
+            <Tag color="green" style={{ margin: 0 }}>
+              저장됨 {conveyorSavedAt.toLocaleTimeString("ko-KR")}
+            </Tag>
+          )}
+        </div>
+      ),
+      extra: (
+        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" onClick={handleExportCsv}>CSV 내보내기</Button>
+          <Button size="small" onClick={() => fileInputRef.current?.click()}>CSV 가져오기</Button>
+          <Button size="small" type="primary" onClick={saveConveyor} loading={savingConveyor}>
+            저장
+          </Button>
+        </div>
+      ),
+      children: (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          {conveyor.conveyors.map((item) => (
+            <div
+              key={item.index}
+              style={{
+                border: "1px solid #e8e8e8",
+                borderRadius: 8,
+                padding: 12,
+                background: "#fff",
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 8,
+                  borderBottom: "1px solid #f0f0f0",
+                  paddingBottom: 8,
+                }}
+              >
+                컨베이어 {item.index}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "110px 1fr 60px",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 12,
+                }}
+              >
+                <span>AMR Pos</span>
+                <Select
+                  size="small"
+                  showSearch
+                  allowClear
+                  value={item.amr_pos ?? null}
+                  onChange={(value) => handleConveyorChange(item.index, "amr_pos", value)}
+                  options={stationOptions}
+                  filterOption={(input, option) =>
+                    (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                  }
+                  placeholder="스테이션"
+                />
+                <Tag color="default">-</Tag>
+                {CONVEYOR_SIGNAL_FIELDS.map((field) => {
+                  const value = item[field.key];
+                  return (
+                    <React.Fragment key={`${item.index}-${field.key}`}>
+                      <span>{field.label}</span>
+                      <Input
+                        size="small"
+                        value={value ?? ""}
+                        onChange={(e) =>
+                          handleConveyorChange(item.index, field.key, e.target.value)
+                        }
+                        placeholder="ID"
+                      />
+                      {renderValueTag(value ? plcValues?.[value] : null)}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -1165,7 +1391,14 @@ export default function DeviceSettings() {
           }}
         />
         <Collapse
-          defaultActiveKey={["instocker"]}
+          activeKey={collapseKeys}
+          onChange={(keys) => {
+            if (!keys) {
+              setCollapseKeys([]);
+              return;
+            }
+            setCollapseKeys(Array.isArray(keys) ? keys : [keys]);
+          }}
           expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
           items={collapseItems}
           style={{ background: "#fff", borderRadius: 8 }}

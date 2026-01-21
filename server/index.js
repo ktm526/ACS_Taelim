@@ -10,6 +10,7 @@ const app = express();
 require('./models/DeviceInStocker');
 require('./models/DeviceGrinder');
 require('./models/DeviceOutStocker');
+require('./models/DeviceConveyor');
 
 /* ── ① 공통 미들웨어 ─────────────────────────────── */
 app.use(cors({ origin: '*' }));
@@ -117,6 +118,8 @@ app.use(express.static(path.join(__dirname, 'dist')));
     require('./services/plcMonitorService');
     console.log('Loading taskCreateService...');
     require('./services/taskCreateService');
+    console.log('Loading taskExecutorService...');
+    require('./services/taskExecutorService');
     // dispatcher/taskExecutor/robotJack/robotMotion/robotMap 기능은 제거됨
 
     /* 3) React Router 지원을 위한 catch-all 라우트 ─── */
