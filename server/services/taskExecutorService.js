@@ -115,9 +115,14 @@ async function waitUntil(cond, ms, taskId) {
 
 function resolveStationId(stations, dest) {
   const target = stations.find(
-    (s) => String(s.id) === String(dest) || s.name === dest
+    (s) =>
+      String(s.id) === String(dest) ||
+      s.name === dest ||
+      s.station_name === dest
   );
-  return target ? { id: target.id, name: target.name ?? target.id } : null;
+  if (!target) return null;
+  const displayName = target.name ?? target.station_name ?? target.id;
+  return { id: target.id, name: displayName };
 }
 
 async function executeStep(step, robot) {
