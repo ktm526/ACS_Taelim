@@ -13,8 +13,11 @@ import {
   List,
   Input,
   Select,
+  Collapse,
+  Popconfirm,
+  Divider,
 } from "antd";
-import { SettingOutlined, DownOutlined, UpOutlined } from "@ant-design/icons";
+import { SettingOutlined, DownOutlined, UpOutlined, EyeOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useAtom } from "jotai";
 import { mapsQueryAtom, robotsQueryAtom, selectedMapAtom } from "@/state/atoms";
@@ -181,6 +184,104 @@ export default function Canvas() {
     { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", plcId: "", plcData: "", plcExpected: "" },
   ]);
   const [taskSubmitting, setTaskSubmitting] = useState(false);
+
+  // 태스크 상세 보기 모달
+  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+  const [taskDetailData, setTaskDetailData] = useState(null);
+  const [taskDetailLoading, setTaskDetailLoading] = useState(false);
+
+  // 프리셋 관련 상태
+  const [presets, setPresets] = useState(() => {
+    try {
+      const stored = localStorage.getItem("task-presets");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [presetName, setPresetName] = useState("");
+  const [presetModalOpen, setPresetModalOpen] = useState(false);
+
+  // 프리셋 저장
+  const savePreset = useCallback(() => {
+    if (!presetName.trim()) {
+      message.warning("프리셋 이름을 입력하세요.");
+      return;
+    }
+    const newPreset = {
+      id: Date.now(),
+      name: presetName.trim(),
+      steps: taskSteps,
+    };
+    const newPresets = [...presets, newPreset];
+    setPresets(newPresets);
+    localStorage.setItem("task-presets", JSON.stringify(newPresets));
+    setPresetName("");
+    setPresetModalOpen(false);
+    message.success(`프리셋 "${newPreset.name}" 저장됨`);
+  }, [presetName, taskSteps, presets]);
+
+  // 프리셋 삭제
+  const deletePreset = useCallback((presetId) => {
+    const newPresets = presets.filter((p) => p.id !== presetId);
+    setPresets(newPresets);
+    localStorage.setItem("task-presets", JSON.stringify(newPresets));
+    message.success("프리셋 삭제됨");
+  }, [presets]);
+
+  // 프리셋 로드
+  const loadPreset = useCallback((preset) => {
+    setTaskSteps(preset.steps);
+    message.success(`프리셋 "${preset.name}" 로드됨`);
+  }, []);
+
+  // 태스크 상세 조회
+  const fetchTaskDetail = useCallback(async (taskId) => {
+    setTaskDetailLoading(true);
+    try {
+      const response = await fetch(`${CORE}/api/tasks/${taskId}`);
+      if (!response.ok) throw new Error("Failed to fetch task detail");
+      const data = await response.json();
+      setTaskDetailData(data);
+      setTaskDetailOpen(true);
+    } catch (err) {
+      message.error("태스크 상세 조회 실패");
+    } finally {
+      setTaskDetailLoading(false);
+    }
+  }, []);
+
+  // 스텝 타입 라벨
+  const stepTypeLabel = (type) => {
+    switch (type) {
+      case "NAV": return "이동";
+      case "MANI_WORK": return "매니퓰레이터";
+      case "PLC_WRITE": return "PLC 쓰기";
+      case "PLC_READ": return "PLC 읽기";
+      default: return type;
+    }
+  };
+
+  // 스텝 payload 요약
+  const stepPayloadSummary = (step) => {
+    try {
+      const payload = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload;
+      switch (step.type) {
+        case "NAV":
+          return `→ ${payload.dest || "?"}`;
+        case "MANI_WORK":
+          return `ID:${payload.CMD_ID} FROM:${payload.CMD_FROM} TO:${payload.CMD_TO}`;
+        case "PLC_WRITE":
+          return `${payload.PLC_BIT}=${payload.PLC_DATA}`;
+        case "PLC_READ":
+          return `${payload.PLC_ID} == ${payload.EXPECTED}`;
+        default:
+          return JSON.stringify(payload);
+      }
+    } catch {
+      return "-";
+    }
+  };
 
   const stationOptions = useMemo(() => {
     try {
@@ -731,9 +832,17 @@ export default function Canvas() {
                         key={task.id}
                         actions={[
                           <Button
+                            key="view"
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => fetchTaskDetail(task.id)}
+                            loading={taskDetailLoading}
+                          />,
+                          <Button
                             key="del"
                             size="small"
                             danger
+                            icon={<DeleteOutlined />}
                             onClick={async () => {
                               try {
                                 await fetch(`${CORE}/api/tasks/${task.id}`, {
@@ -745,18 +854,26 @@ export default function Canvas() {
                                 message.error("태스크 삭제 실패");
                               }
                             }}
-                          >
-                            삭제
-                          </Button>,
+                          />,
                         ]}
                       >
                         <div style={{ display: "flex", flexDirection: "column" }}>
                           <span style={{ fontSize: 12, fontWeight: 600 }}>
                             #{task.id} / 로봇 {task.robot_id}
                           </span>
-                          <span style={{ fontSize: 11, color: "#666" }}>
+                          <Tag
+                            color={
+                              task.status === "DONE" ? "green" :
+                              task.status === "RUNNING" ? "blue" :
+                              task.status === "PENDING" ? "default" :
+                              task.status === "PAUSED" ? "orange" :
+                              task.status === "CANCELED" ? "red" :
+                              task.status === "FAILED" ? "red" : "default"
+                            }
+                            style={{ fontSize: 10, marginTop: 2 }}
+                          >
                             {task.status} · seq {task.current_seq ?? 0}
-                          </span>
+                          </Tag>
                         </div>
                       </List.Item>
                     )}
@@ -896,6 +1013,7 @@ export default function Canvas() {
         okText="추가"
         cancelText="취소"
         confirmLoading={taskSubmitting}
+        width={600}
         onOk={async () => {
           try {
             if (!taskRobotId) {
@@ -967,6 +1085,43 @@ export default function Canvas() {
               style={{ width: "100%" }}
             />
           </div>
+
+          {/* 프리셋 영역 */}
+          <div style={{ background: "#f5f5f5", padding: 8, borderRadius: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontWeight: 600, fontSize: 12 }}>프리셋</span>
+              <Button
+                size="small"
+                icon={<SaveOutlined />}
+                onClick={() => setPresetModalOpen(true)}
+                disabled={taskSteps.length === 0}
+              >
+                현재 스텝 저장
+              </Button>
+            </div>
+            {presets.length === 0 ? (
+              <span style={{ fontSize: 11, color: "#999" }}>저장된 프리셋이 없습니다.</span>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {presets.map((preset) => (
+                  <Tag
+                    key={preset.id}
+                    style={{ cursor: "pointer", marginRight: 0 }}
+                    closable
+                    onClose={(e) => {
+                      e.preventDefault();
+                      deletePreset(preset.id);
+                    }}
+                    onClick={() => loadPreset(preset)}
+                    icon={<FolderOpenOutlined />}
+                  >
+                    {preset.name} ({preset.steps.length})
+                  </Tag>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
               <span>스텝 목록</span>
@@ -1143,6 +1298,119 @@ export default function Canvas() {
         onCancel={passwordConfirm.handleCancel}
         {...passwordConfirm.modalProps}
       />
+
+      {/* 태스크 상세 보기 모달 */}
+      <Modal
+        title={taskDetailData ? `태스크 #${taskDetailData.id} 상세` : "태스크 상세"}
+        open={taskDetailOpen}
+        footer={null}
+        onCancel={() => {
+          setTaskDetailOpen(false);
+          setTaskDetailData(null);
+        }}
+        width={600}
+      >
+        {taskDetailData && (
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#888" }}>로봇 ID</div>
+                <div style={{ fontWeight: 600 }}>{taskDetailData.robot_id}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#888" }}>상태</div>
+                <Tag
+                  color={
+                    taskDetailData.status === "DONE" ? "green" :
+                    taskDetailData.status === "RUNNING" ? "blue" :
+                    taskDetailData.status === "PENDING" ? "default" :
+                    taskDetailData.status === "PAUSED" ? "orange" :
+                    taskDetailData.status === "CANCELED" ? "red" :
+                    taskDetailData.status === "FAILED" ? "red" : "default"
+                  }
+                >
+                  {taskDetailData.status}
+                </Tag>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#888" }}>현재 스텝</div>
+                <div style={{ fontWeight: 600 }}>{taskDetailData.current_seq ?? 0}</div>
+              </div>
+            </div>
+
+            <Divider style={{ margin: "8px 0" }} />
+
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>스텝 목록 ({taskDetailData.steps?.length ?? 0}개)</div>
+              <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                {(taskDetailData.steps || [])
+                  .slice()
+                  .sort((a, b) => a.seq - b.seq)
+                  .map((step, idx) => (
+                    <div
+                      key={step.id || idx}
+                      style={{
+                        padding: 8,
+                        marginBottom: 6,
+                        border: "1px solid #e8e8e8",
+                        borderRadius: 6,
+                        background:
+                          step.status === "DONE" ? "#f6ffed" :
+                          step.status === "RUNNING" ? "#e6f7ff" :
+                          step.status === "FAILED" ? "#fff2f0" : "#fafafa",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "#888" }}>#{step.seq + 1}</span>
+                          <Tag color="blue">{stepTypeLabel(step.type)}</Tag>
+                          <span style={{ fontSize: 12 }}>{stepPayloadSummary(step)}</span>
+                        </div>
+                        <Tag
+                          color={
+                            step.status === "DONE" ? "green" :
+                            step.status === "RUNNING" ? "blue" :
+                            step.status === "PENDING" ? "default" :
+                            step.status === "FAILED" ? "red" : "default"
+                          }
+                          style={{ fontSize: 10 }}
+                        >
+                          {step.status}
+                        </Tag>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 프리셋 저장 모달 */}
+      <Modal
+        title="프리셋 저장"
+        open={presetModalOpen}
+        okText="저장"
+        cancelText="취소"
+        onOk={savePreset}
+        onCancel={() => {
+          setPresetModalOpen(false);
+          setPresetName("");
+        }}
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <div>프리셋 이름</div>
+          <Input
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+            placeholder="예: 인스토커→연마기"
+            onPressEnter={savePreset}
+          />
+          <div style={{ fontSize: 11, color: "#888" }}>
+            현재 {taskSteps.length}개 스텝이 저장됩니다.
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
