@@ -842,40 +842,43 @@ export default function Canvas() {
                     dataSource={tasks}
                     style={{ maxHeight: 260, overflowY: "auto" }}
                     locale={{ emptyText: "태스크 없음" }}
-                    renderItem={(task) => (
-                      <List.Item
-                        key={task.id}
-                        actions={[
-                          <Button
-                            key="view"
-                            size="small"
-                            icon={<EyeOutlined />}
-                            onClick={() => fetchTaskDetail(task.id)}
-                            loading={taskDetailLoading}
-                          />,
-                          <Button
-                            key="del"
-                            size="small"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={async () => {
-                              try {
-                                await fetch(`${CORE}/api/tasks/${task.id}`, {
-                                  method: "DELETE",
-                                });
-                                tasksQuery.refetch();
-                                message.success("태스크 삭제 완료");
-                              } catch {
-                                message.error("태스크 삭제 실패");
-                              }
-                            }}
-                          />,
-                        ]}
-                      >
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontSize: 12, fontWeight: 600 }}>
-                            #{task.id} / 로봇 {task.robot_id}
-                          </span>
+                    renderItem={(task) => {
+                      const robot = robots.find((r) => r.id === task.robot_id);
+                      const robotName = robot?.name || `로봇 ${task.robot_id}`;
+                      return (
+                        <List.Item
+                          key={task.id}
+                          actions={[
+                            <Button
+                              key="view"
+                              size="small"
+                              icon={<EyeOutlined />}
+                              onClick={() => fetchTaskDetail(task.id)}
+                              loading={taskDetailLoading}
+                            />,
+                            <Button
+                              key="del"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={async () => {
+                                try {
+                                  await fetch(`${CORE}/api/tasks/${task.id}`, {
+                                    method: "DELETE",
+                                  });
+                                  tasksQuery.refetch();
+                                  message.success("태스크 삭제 완료");
+                                } catch {
+                                  message.error("태스크 삭제 실패");
+                                }
+                              }}
+                            />,
+                          ]}
+                        >
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span style={{ fontSize: 12, fontWeight: 600 }}>
+                              #{task.id} / {robotName}
+                            </span>
                           <Tag
                             color={
                               task.status === "DONE" ? "green" :
@@ -891,7 +894,8 @@ export default function Canvas() {
                           </Tag>
                         </div>
                       </List.Item>
-                    )}
+                      );
+                    }}
                   />
                 )}
               </Card>
@@ -1325,13 +1329,16 @@ export default function Canvas() {
         }}
         width={600}
       >
-        {taskDetailData && (
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              <div>
-                <div style={{ fontSize: 11, color: "#888" }}>로봇 ID</div>
-                <div style={{ fontWeight: 600 }}>{taskDetailData.robot_id}</div>
-              </div>
+        {taskDetailData && (() => {
+          const robot = robots.find((r) => r.id === taskDetailData.robot_id);
+          const robotName = robot?.name || `로봇 ${taskDetailData.robot_id}`;
+          return (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: "#888" }}>로봇</div>
+                  <div style={{ fontWeight: 600 }}>{robotName}</div>
+                </div>
               <div>
                 <div style={{ fontSize: 11, color: "#888" }}>상태</div>
                 <Tag
@@ -1398,7 +1405,8 @@ export default function Canvas() {
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* 프리셋 저장 모달 */}
