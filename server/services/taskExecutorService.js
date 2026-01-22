@@ -357,10 +357,10 @@ async function executeStep(step, robot) {
       console.log(`${stepLabel}:   DO Port: ${ROBOT_IO_PORT}, DO API: 0x${ROBOT_DO_API.toString(16)}, DO ID: ${MANI_WORK_DO_ID}`);
       console.log(`${stepLabel}:   MANI Port: ${MANI_CMD_PORT}, MANI API: 0x${MANI_CMD_API.toString(16)}`);
       try {
-        console.log(`${stepLabel}: [1/2] DO${MANI_WORK_DO_ID}=1 전송 중...`);
-        await setRobotDo(robot.ip, MANI_WORK_DO_ID, true, stepLabel);
-        console.log(`${stepLabel}: [2/2] MANI 명령 전송 중...`);
+        console.log(`${stepLabel}: [1/2] MANI 명령 전송 중...`);
         await sendManiCommand(robot.ip, payload, stepLabel);
+        console.log(`${stepLabel}: [2/2] DO${MANI_WORK_DO_ID}=1 전송 중...`);
+        await setRobotDo(robot.ip, MANI_WORK_DO_ID, true, stepLabel);
         inFlightMani.add(step.id);
         console.log(`${stepLabel}: 명령 전송 완료, DI 응답 대기 시작`);
       } catch (err) {
