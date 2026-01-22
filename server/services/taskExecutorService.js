@@ -423,11 +423,16 @@ async function progressTask(task, robot) {
 }
 
 async function handleRobot(robot, tasks) {
-  if (robotLocks.get(robot.id)) return;
+  if (robotLocks.get(robot.id)) {
+    console.log(`[Executor] Robot ${robot.name}: 이전 처리 중, 스킵`);
+    return;
+  }
   robotLocks.set(robot.id, true);
   try {
     const runningTask = tasks.find((t) => t.status === "RUNNING");
     const pendingTask = tasks.find((t) => t.status === "PENDING");
+    
+    console.log(`[Executor] Robot ${robot.name}: 태스크 처리 시작 (running=${runningTask?.id || 'none'}, pending=${pendingTask?.id || 'none'}, status="${robot.status}")`);
 
     if (runningTask) {
       await progressTask(runningTask, robot);
@@ -440,8 +445,8 @@ async function handleRobot(robot, tasks) {
         await pendingTask.update({ status: "RUNNING", current_seq: 0 });
         await progressTask(pendingTask, robot);
       } else {
-        // 로봇이 대기 상태가 아니면 로그
-        // console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: ${robot.status})`);
+        // 로봇이 대기 상태가 아니면 대기
+        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: "${robot.status}" ≠ "대기")`);
       }
     }
   } catch (err) {
@@ -451,13 +456,22 @@ async function handleRobot(robot, tasks) {
   }
 }
 
+let tickCount = 0;
+
 async function tick() {
+  tickCount++;
   const robots = await Robot.findAll();
   const tasks = await Task.findAll({
     where: { status: ["PENDING", "RUNNING"] },
     include: [{ model: TaskStep, as: "steps" }],
     order: [["id", "ASC"]],
   });
+
+  // 10초마다 상태 요약 출력
+  if (tickCount % 10 === 1) {
+    const taskSummary = tasks.length ? tasks.map(t => `#${t.id}(${t.status})`).join(', ') : '없음';
+    console.log(`[Executor] tick#${tickCount}: 로봇 ${robots.length}대, 활성 태스크: ${taskSummary}`);
+  }
 
   const tasksByRobot = new Map();
   tasks.forEach((task) => {
@@ -467,7 +481,11 @@ async function tick() {
   });
 
   for (const robot of robots) {
-    if (["연결 끊김", "오류"].includes(robot.status)) continue;
+    if (["연결 끊김", "오류"].includes(robot.status)) {
+      // 스킵되는 로봇 로그 (너무 자주 나오면 주석 처리)
+      // console.log(`[Executor] Robot ${robot.name} 스킵 (상태: ${robot.status})`);
+      continue;
+    }
     const list = tasksByRobot.get(robot.id) || [];
     if (!list.length) continue;
     await handleRobot(robot, list);
