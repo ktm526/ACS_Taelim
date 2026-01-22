@@ -58,6 +58,7 @@ const STATUS_BADGE = {
   충전: "warning",
   수동: "default",
   오류: "error",
+  비상정지: "error",
   "연결 끊김": "default",
   unknown: "default",
 };
@@ -67,6 +68,7 @@ const STATUS_TAG_COLOR = {
   충전: "orange",
   수동: "purple",
   오류: "red",
+  비상정지: "magenta",
   "연결 끊김": "default",
   unknown: "default",
 };

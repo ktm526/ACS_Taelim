@@ -111,6 +111,16 @@ export default function Canvas() {
       // JSON 파싱 실패 시 빈 객체 사용
     }
     
+    // 비상정지 상태 (최우선)
+    if (additionalInfo.emergency === true) {
+      return '비상정지';
+    }
+    
+    // 에러가 있는 경우
+    if (Array.isArray(additionalInfo.errors) && additionalInfo.errors.length > 0) {
+      return '오류';
+    }
+    
     // DI 센서 11번이 true이면 '수동' 상태로 표시
     const diSensors = additionalInfo.diSensors || [];
     const sensor11 = diSensors.find(s => s.id === 11);
@@ -307,6 +317,11 @@ export default function Canvas() {
     // 연결 끊김 상태 - 빨간색 (최우선)
     if (status === '연결 끊김') {
       return { color: '#ff4d4f', shouldPulse: true };
+    }
+    
+    // 비상정지 상태 - 마젠타
+    if (status === '비상정지') {
+      return { color: '#eb2f96', shouldPulse: true };
     }
     
     // 오류 상태이거나 일시정지된 task가 있는 경우 - 빨간색

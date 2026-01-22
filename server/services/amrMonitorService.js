@@ -87,11 +87,26 @@ function handlePush(sock, ip) {
                 : typeof json.taskStatus === 'number'
                     ? json.taskStatus
                     : null;
+            
+            // 충전/비상 상태 우선 체크
+            const isChargingNow = json.charging === true;
+            const isEmergencyNow = json.emergency === true;
+            const hasErrors = Array.isArray(json.errors) && json.errors.length > 0;
+            
             let statusStr;
-            if (tsRaw === 2) statusStr = '이동';
-            else if ([0, 1, 4].includes(tsRaw)) statusStr = '대기';
-            else if ([5, 6].includes(tsRaw)) statusStr = '오류';
-            else statusStr = 'unknown';
+            if (isEmergencyNow) {
+                statusStr = '비상정지';
+            } else if (hasErrors || [5, 6].includes(tsRaw)) {
+                statusStr = '오류';
+            } else if (isChargingNow) {
+                statusStr = '충전';
+            } else if (tsRaw === 2) {
+                statusStr = '이동';
+            } else if ([0, 1, 4].includes(tsRaw)) {
+                statusStr = '대기';
+            } else {
+                statusStr = 'unknown';
+            }
 
             // extract other fields...
             const location = json.current_station || json.currentStation ||
