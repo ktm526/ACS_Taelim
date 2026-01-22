@@ -1278,17 +1278,29 @@ export default function AMRStatus() {
                     key: "json",
                     label: "추가정보(JSON)",
                     children: (
-                      <Paragraph
-                        code
-                        copyable
+                      <div
                         style={{
-                          whiteSpace: "pre-wrap",
-                          maxHeight: 260,
+                          maxHeight: "calc(100vh - 400px)",
+                          minHeight: 200,
                           overflow: "auto",
+                          background: "#f5f5f5",
+                          borderRadius: 6,
+                          padding: 12,
                         }}
                       >
-                        {formatJsonForDisplay(selectedAmr.additional_info)}
-                      </Paragraph>
+                        <Paragraph
+                          code
+                          copyable
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            margin: 0,
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {formatJsonForDisplay(selectedAmr.additional_info)}
+                        </Paragraph>
+                      </div>
                     ),
                   },
                 ]}

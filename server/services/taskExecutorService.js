@@ -249,14 +249,20 @@ function resolveStationId(stations, dest) {
 
 async function executeStep(step, robot) {
   const payload = parsePayload(step);
+  const stepLabel = `[Executor] Task#${step.task_id} Step#${step.seq}(${step.type})`;
+  
   if (step.type === "NAV") {
     if (!payload.dest) throw new Error("NAV dest missing");
     const mapRow = await MapDB.findOne({ where: { is_current: true } });
     const stations = JSON.parse(mapRow?.stations || "{}").stations || [];
     const target = resolveStationId(stations, payload.dest);
-    if (!target) throw new Error("NAV station not found");
+    if (!target) {
+      console.error(`${stepLabel}: 스테이션 '${payload.dest}' 찾을 수 없음`);
+      throw new Error(`NAV station not found: ${payload.dest}`);
+    }
 
     if (!inFlightNav.has(step.id)) {
+      console.log(`${stepLabel}: NAV 명령 전송 → ${target.name}(${target.id})`);
       await Robot.update(
         { destination: target.name },
         { where: { id: robot.id } }
@@ -267,36 +273,51 @@ async function executeStep(step, robot) {
 
     const ok = await waitUntil(async () => {
       const fresh = await Robot.findByPk(robot.id);
-      return fresh && String(fresh.location) === String(target.id);
+      const arrived = fresh && String(fresh.location) === String(target.id);
+      // 10초마다 위치 로깅
+      return arrived;
     }, 30 * 60 * 1000, step.task_id);
 
-    if (!ok) return false;
+    if (!ok) {
+      console.log(`${stepLabel}: NAV 대기 중 (목적지: ${target.name})`);
+      return false;
+    }
+    console.log(`${stepLabel}: NAV 완료 → ${target.name} 도착`);
     inFlightNav.delete(step.id);
     await delay(5000);
     return true;
   }
+  
   if (step.type === "MANI_WORK") {
     const cmdId = payload.CMD_ID;
     const cmdFrom = payload.CMD_FROM;
     const cmdTo = payload.CMD_TO;
     if (cmdId === undefined || cmdFrom === undefined || cmdTo === undefined) {
+      console.error(`${stepLabel}: MANI_WORK payload 누락 (ID=${cmdId}, FROM=${cmdFrom}, TO=${cmdTo})`);
       await markStepFailed(step);
       throw new Error("MANI_WORK payload missing");
     }
 
     if (!inFlightMani.has(step.id)) {
+      console.log(`${stepLabel}: MANI_WORK 시작 (CMD_ID=${cmdId}, FROM=${cmdFrom}, TO=${cmdTo})`);
       try {
+        console.log(`${stepLabel}: DO${MANI_WORK_DO_ID}=1 쓰기`);
         await setRobotDo(robot.ip, MANI_WORK_DO_ID, true);
+        console.log(`${stepLabel}: MANI 명령 전송 (port=${MANI_CMD_PORT}, api=${MANI_CMD_API})`);
         await sendManiCommand(robot.ip, payload);
         inFlightMani.add(step.id);
       } catch (err) {
+        console.error(`${stepLabel}: MANI_WORK 명령 전송 실패:`, err.message);
         await markStepFailed(step);
         throw err;
       }
     }
 
+    console.log(`${stepLabel}: DI${MANI_WORK_OK_DI}(성공) 또는 DI${MANI_WORK_ERR_DI}(에러) 대기 중...`);
     const result = await waitForManiResult(robot.id, step.task_id);
+    
     if (result === "success") {
+      console.log(`${stepLabel}: MANI_WORK 성공 (DI${MANI_WORK_OK_DI}=1)`);
       inFlightMani.delete(step.id);
       try {
         await setRobotDo(robot.ip, MANI_WORK_DO_ID, false);
@@ -304,6 +325,7 @@ async function executeStep(step, robot) {
       return true;
     }
     if (result === "error") {
+      console.error(`${stepLabel}: MANI_WORK 에러 (DI${MANI_WORK_ERR_DI}=1)`);
       inFlightMani.delete(step.id);
       try {
         await setRobotDo(robot.ip, MANI_WORK_DO_ID, false);
@@ -312,6 +334,7 @@ async function executeStep(step, robot) {
       throw new Error("MANI_WORK failed (DI error)");
     }
     if (result === "timeout") {
+      console.error(`${stepLabel}: MANI_WORK 타임아웃 (${MANI_WORK_TIMEOUT_MS}ms)`);
       inFlightMani.delete(step.id);
       try {
         await setRobotDo(robot.ip, MANI_WORK_DO_ID, false);
@@ -319,31 +342,45 @@ async function executeStep(step, robot) {
       await markStepFailed(step);
       throw new Error("MANI_WORK timeout");
     }
+    console.log(`${stepLabel}: MANI_WORK 대기 중...`);
     return false;
   }
+  
   if (step.type === "PLC_WRITE") {
     if (!payload.PLC_BIT) throw new Error("PLC_WRITE id missing");
+    console.log(`${stepLabel}: PLC_WRITE ${payload.PLC_BIT}=${payload.PLC_DATA}`);
     await writePlc(payload.PLC_BIT, payload.PLC_DATA);
+    console.log(`${stepLabel}: PLC_WRITE 완료`);
     return true;
   }
+  
   if (step.type === "PLC_READ") {
     if (!payload.PLC_ID) throw new Error("PLC_READ id missing");
     const current = readPlc(payload.PLC_ID);
-    if (current === null) return false;
-    return Number(current) === Number(payload.EXPECTED);
+    const match = current !== null && Number(current) === Number(payload.EXPECTED);
+    if (!match) {
+      // 매 호출마다 로그하면 너무 많으므로 조건부로
+      // console.log(`${stepLabel}: PLC_READ ${payload.PLC_ID}=${current} (기대값:${payload.EXPECTED}) 대기 중`);
+    } else {
+      console.log(`${stepLabel}: PLC_READ ${payload.PLC_ID}=${current} ✓`);
+    }
+    return match;
   }
+  
   return true;
 }
 
 async function progressTask(task, robot) {
   const steps = (task.steps || []).slice().sort((a, b) => a.seq - b.seq);
   if (!steps.length) {
+    console.log(`[Executor] Task#${task.id}: 스텝 없음 → DONE`);
     await task.update({ status: "DONE" });
     return;
   }
   let seq = Number(task.current_seq ?? 0);
   const step = steps.find((s) => s.seq === seq);
   if (!step) {
+    console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
     await task.update({ status: "DONE" });
     return;
   }
@@ -354,6 +391,7 @@ async function progressTask(task, robot) {
   }
 
   if (step.status !== "RUNNING") {
+    console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 시작`);
     await step.update({ status: "RUNNING" });
   }
 
@@ -373,11 +411,13 @@ async function progressTask(task, robot) {
     return;
   }
 
+  console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 완료 ✓`);
   await step.update({ status: "DONE" });
   await task.update({ current_seq: seq + 1 });
 
   const lastSeq = steps[steps.length - 1]?.seq;
   if (seq + 1 > lastSeq) {
+    console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
     await task.update({ status: "DONE" });
   }
 }
@@ -394,12 +434,18 @@ async function handleRobot(robot, tasks) {
       return;
     }
 
-    if (pendingTask && robot.status === "대기") {
-      await pendingTask.update({ status: "RUNNING", current_seq: 0 });
-      await progressTask(pendingTask, robot);
+    if (pendingTask) {
+      if (robot.status === "대기") {
+        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps)`);
+        await pendingTask.update({ status: "RUNNING", current_seq: 0 });
+        await progressTask(pendingTask, robot);
+      } else {
+        // 로봇이 대기 상태가 아니면 로그
+        // console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: ${robot.status})`);
+      }
     }
   } catch (err) {
-    console.error(`[TaskExecutor] robot ${robot.id} error:`, err?.message || err);
+    console.error(`[Executor] Robot ${robot.name}(${robot.id}) 오류:`, err?.message || err);
   } finally {
     robotLocks.set(robot.id, false);
   }

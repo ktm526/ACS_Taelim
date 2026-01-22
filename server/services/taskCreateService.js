@@ -185,28 +185,36 @@ async function getActiveTasks() {
 }
 
 async function createTaskForSide(side, config, activeTasks) {
+  console.log(`[TaskCreate] ${side}: createTaskForSide 시작`);
+  
   const slots = getSideSlots(config.instockerSlots, side);
-  if (slots.length === 0) return;
+  if (slots.length === 0) {
+    console.log(`[TaskCreate] ${side}: 슬롯 정보 없음`);
+    return;
+  }
 
   const pickupStation = slots[0]?.amr_pos;
   if (!pickupStation) {
     console.warn(`[TaskCreate] ${side}: L/R 1번 칸 AMR pos 없음`);
     return;
   }
+  console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
 
   const availableByProduct = buildAvailableGrinderPositions(config.grinders);
+  console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치:`, 
+    Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(', ') || '없음'
+  );
+
   const slotTargets = [];
   for (const slot of slots) {
     if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) {
-      console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락`);
+      console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락 (product_type_id=${slot.product_type_id}, value=${slot.product_type_value}, mani=${slot.mani_pos})`);
       return;
     }
     const productKey = String(slot.product_type_value);
     const list = availableByProduct.get(productKey) || [];
     if (list.length === 0) {
-      console.log(
-        `[TaskCreate] ${side}: 제품 ${productKey} 투입 가능 위치 부족`
-      );
+      console.log(`[TaskCreate] ${side}: 제품 ${productKey} 투입 가능 위치 부족 (슬롯 ${slot.key})`);
       return;
     }
     const next = list.shift();
@@ -218,6 +226,7 @@ async function createTaskForSide(side, config, activeTasks) {
       grinder_mani_pos: next.mani_pos,
     });
     availableByProduct.set(slot.product_type_id, list);
+    console.log(`[TaskCreate] ${side}: 슬롯 ${slot.key}(제품${productKey}) → 연마기 ${next.grinderIndex}-${next.position}`);
   }
 
   const robot = await Robot.findOne({ where: { name: "M1000" } });
@@ -225,12 +234,13 @@ async function createTaskForSide(side, config, activeTasks) {
     console.warn("[TaskCreate] M1000 로봇 없음");
     return;
   }
+  console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
 
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
   if (existingTask) {
-    console.log(`[TaskCreate] M1000 기존 태스크 진행 중: ${existingTask.id}`);
+    console.log(`[TaskCreate] ${side}: M1000 기존 태스크 진행 중 (Task#${existingTask.id}, ${existingTask.status})`);
     return;
   }
 
@@ -441,10 +451,14 @@ async function checkSide(side, config, activeTasks) {
   try {
     const cfg = config || (await loadConfig());
     const workId = normalizeText(config.sideSignals?.[side]?.work_available_id);
-    if (!workId) return;
+    if (!workId) {
+      // console.log(`[TaskCreate] ${side}: work_available_id 설정 없음`);
+      return;
+    }
 
     const current = isSignalOn(workId) ? 1 : 0;
     if (current === 1) {
+      console.log(`[TaskCreate] ${side}: 작업가능 신호 ON (${workId}=1) → 태스크 생성 시도`);
       await createTaskForSide(side, cfg, activeTasks);
     }
   } catch (err) {
@@ -465,6 +479,7 @@ async function checkConveyors(config, activeTasks) {
       const qty =
         qty4 && isSignalOn(qty4) ? 4 : qty1 && isSignalOn(qty1) ? 1 : 0;
       if (!qty) continue;
+      console.log(`[TaskCreate] Conveyor${index}: 투입수량 신호 감지 (qty=${qty}) → 태스크 생성 시도`);
       await createTaskForConveyor(item, config, qty, activeTasks);
     } catch (err) {
       console.error(`[TaskCreate] conveyor${item.index} 체크 오류:`, err?.message || err);
