@@ -110,7 +110,7 @@ export default function AMRStatus() {
       return '연결 끊김';
     }
     
-    // additional_info에서 charging 상태 확인
+    // additional_info에서 상태 확인
     let additionalInfo = {};
     try {
       additionalInfo = typeof amr.additional_info === 'string' 
@@ -118,6 +118,16 @@ export default function AMRStatus() {
         : amr.additional_info || {};
     } catch (e) {
       // JSON 파싱 실패 시 빈 객체 사용
+    }
+    
+    // 비상정지 상태 (최우선)
+    if (additionalInfo.emergency === true) {
+      return '비상정지';
+    }
+    
+    // 에러가 있는 경우
+    if (Array.isArray(additionalInfo.errors) && additionalInfo.errors.length > 0) {
+      return '오류';
     }
     
     // DI 센서 11번이 true이면 '수동' 상태로 표시
@@ -961,6 +971,9 @@ export default function AMRStatus() {
                   break;
                 case '오류':
                   borderColor = token.colorError;
+                  break;
+                case '비상정지':
+                  borderColor = '#eb2f96'; // magenta
                   break;
                 case '연결 끊김':
                   borderColor = token.colorTextSecondary;
