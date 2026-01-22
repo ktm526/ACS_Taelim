@@ -14,7 +14,7 @@ const WORD_MODE = (process.env.PLC_WORD_MODE || "holding").toLowerCase(); // hol
 const MANI_CMD_PORT = Number.parseInt(process.env.MANI_CMD_PORT || "19207", 10);
 const MANI_CMD_API = Number.parseInt(process.env.MANI_CMD_API || "3054", 10);
 const ROBOT_IO_PORT = Number.parseInt(process.env.ROBOT_IO_PORT || "19210", 10);
-const ROBOT_DO_API = Number.parseInt(process.env.ROBOT_DO_API || "6021", 10);
+const ROBOT_DO_API = Number.parseInt(process.env.ROBOT_DO_API || "6001", 10);
 const MANI_WORK_TIMEOUT_MS = Number.parseInt(
   process.env.MANI_WORK_TIMEOUT_MS || "300000",
   10
@@ -164,7 +164,13 @@ function sendTcpCommand(ip, port, apiCode, payload, logLabel = "") {
           try {
             const respJson = JSON.parse(bodyBuf.toString("utf8"));
             console.log(`[TCP] ${logLabel} ← 응답: ${JSON.stringify(respJson)}`);
-            finish(null, respJson);
+            // ret_code가 0이 아니면 에러로 처리
+            if (respJson.ret_code !== undefined && respJson.ret_code !== 0) {
+              const errMsg = respJson.err_msg || `ret_code: ${respJson.ret_code}`;
+              finish(new Error(errMsg), respJson);
+            } else {
+              finish(null, respJson);
+            }
           } catch {
             console.log(`[TCP] ${logLabel} ← 응답(raw): ${bodyBuf.toString("utf8")}`);
             finish(null, bodyBuf.toString("utf8"));
@@ -195,7 +201,7 @@ function sendTcpCommand(ip, port, apiCode, payload, logLabel = "") {
 function setRobotDo(ip, doId, status, logLabel = "") {
   const payload = {
     id: Number(doId),
-    status: status ? 1 : 0,
+    status: status === true || status === 1, // boolean 타입으로 전송
   };
   return sendTcpCommand(ip, ROBOT_IO_PORT, ROBOT_DO_API, payload, `${logLabel} DO${doId}=${status ? 1 : 0}`);
 }
