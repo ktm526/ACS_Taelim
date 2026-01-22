@@ -3,6 +3,30 @@ const { Op } = require('sequelize');
 const { Task, TaskStep } = require('../models');
 const Robot = require('../models/Robot');
 
+const TASK_TTL_MS = 30 * 1000;
+const CLEANUP_INTERVAL_MS = 10 * 1000;
+
+async function cleanupOldTasks() {
+  const cutoff = new Date(Date.now() - TASK_TTL_MS);
+  const rows = await Task.findAll({
+    attributes: ['id'],
+    where: {
+      status: { [Op.in]: ['DONE', 'CANCELED'] },
+      updatedAt: { [Op.lt]: cutoff },
+    },
+  });
+  if (!rows.length) return;
+  const ids = rows.map((r) => r.id);
+  await TaskStep.destroy({ where: { task_id: { [Op.in]: ids } } });
+  await Task.destroy({ where: { id: { [Op.in]: ids } } });
+}
+
+setInterval(() => {
+  cleanupOldTasks().catch((err) => {
+    console.error('[TaskCleanup] error:', err.message);
+  });
+}, CLEANUP_INTERVAL_MS);
+
 /* POST /api/tasks  ─ Task + Steps 생성 */
 exports.create = async (req, res) => {
   const { robot_id, steps = [] } = req.body;
