@@ -68,7 +68,7 @@ function handlePush(sock, ip) {
             if (!name) continue;
 
             // 로봇 푸시 데이터에서 특정 필드 출력
-            console.log(`[AMR ${name}] time: ${json.time}, current_station: ${json.current_station}, errors: ${JSON.stringify(json.errors)}`);
+            //console.log(`[AMR ${name}] time: ${json.time}, current_station: ${json.current_station}, errors: ${JSON.stringify(json.errors)}`);
 
             // time 값 비교 및 저장
             const currentTime = json.time;

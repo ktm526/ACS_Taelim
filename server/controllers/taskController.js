@@ -7,25 +7,30 @@ const TASK_TTL_MS = 30 * 1000;
 const CLEANUP_INTERVAL_MS = 10 * 1000;
 
 async function cleanupOldTasks() {
-  const cutoff = new Date(Date.now() - TASK_TTL_MS);
-  const rows = await Task.findAll({
-    attributes: ['id'],
-    where: {
-      status: { [Op.in]: ['DONE', 'CANCELED'] },
-      updatedAt: { [Op.lt]: cutoff },
-    },
-  });
-  if (!rows.length) return;
-  const ids = rows.map((r) => r.id);
-  await TaskStep.destroy({ where: { task_id: { [Op.in]: ids } } });
-  await Task.destroy({ where: { id: { [Op.in]: ids } } });
+  try {
+    const cutoff = new Date(Date.now() - TASK_TTL_MS);
+    const rows = await Task.findAll({
+      attributes: ['id', 'status', 'updatedAt'],
+      where: {
+        status: { [Op.in]: ['DONE', 'CANCELED'] },
+        updatedAt: { [Op.lt]: cutoff },
+      },
+    });
+    if (!rows.length) return;
+    const ids = rows.map((r) => r.id);
+    console.log(`[TaskCleanup] 삭제 대상 ${ids.length}개: ${ids.join(', ')}`);
+    await TaskStep.destroy({ where: { task_id: { [Op.in]: ids } } });
+    const deleted = await Task.destroy({ where: { id: { [Op.in]: ids } } });
+    console.log(`[TaskCleanup] ${deleted}개 태스크 삭제 완료`);
+  } catch (err) {
+    console.error('[TaskCleanup] error:', err.message);
+  }
 }
 
-setInterval(() => {
-  cleanupOldTasks().catch((err) => {
-    console.error('[TaskCleanup] error:', err.message);
-  });
-}, CLEANUP_INTERVAL_MS);
+// 즉시 실행 + 주기적 실행
+cleanupOldTasks();
+setInterval(cleanupOldTasks, CLEANUP_INTERVAL_MS);
+console.log('[TaskCleanup] 자동 삭제 스케줄러 시작 (30초 경과 DONE/CANCELED 태스크)');
 
 /* POST /api/tasks  ─ Task + Steps 생성 */
 exports.create = async (req, res) => {
