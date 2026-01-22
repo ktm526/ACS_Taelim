@@ -133,38 +133,80 @@ function buildPacket(code, obj) {
   return Buffer.concat([head, body]);
 }
 
-function sendTcpCommand(ip, port, apiCode, payload) {
+function sendTcpCommand(ip, port, apiCode, payload, logLabel = "") {
   return new Promise((resolve, reject) => {
+    console.log(`[TCP] ${logLabel} → ${ip}:${port} API=0x${apiCode.toString(16)} payload=${JSON.stringify(payload)}`);
     const sock = net.createConnection(port, ip);
-    const done = (err) => {
-      try {
-        sock.destroy();
-      } catch {}
-      if (err) reject(err);
-      else resolve();
+    const chunks = [];
+    let resolved = false;
+    
+    const finish = (err, response) => {
+      if (resolved) return;
+      resolved = true;
+      try { sock.destroy(); } catch {}
+      if (err) {
+        console.error(`[TCP] ${logLabel} ✗ 실패: ${err.message}`);
+        reject(err);
+      } else {
+        console.log(`[TCP] ${logLabel} ✓ 완료`);
+        resolve(response);
+      }
     };
-    sock.once("connect", () => {
-      sock.write(buildPacket(apiCode, payload), () => done());
+    
+    sock.on("data", (chunk) => {
+      chunks.push(chunk);
+      // 응답 파싱 시도
+      const buf = Buffer.concat(chunks);
+      if (buf.length >= 16) {
+        const bodyLen = buf.readUInt32BE(4);
+        if (buf.length >= 16 + bodyLen) {
+          const bodyBuf = buf.slice(16, 16 + bodyLen);
+          try {
+            const respJson = JSON.parse(bodyBuf.toString("utf8"));
+            console.log(`[TCP] ${logLabel} ← 응답: ${JSON.stringify(respJson)}`);
+            finish(null, respJson);
+          } catch {
+            console.log(`[TCP] ${logLabel} ← 응답(raw): ${bodyBuf.toString("utf8")}`);
+            finish(null, bodyBuf.toString("utf8"));
+          }
+        }
+      }
     });
-    sock.once("error", (e) => done(e));
-    sock.setTimeout(2000, () => done(new Error("tcp timeout")));
+    
+    sock.once("connect", () => {
+      sock.write(buildPacket(apiCode, payload));
+    });
+    
+    sock.once("error", (e) => finish(e));
+    sock.setTimeout(3000, () => {
+      if (!resolved) {
+        // 타임아웃이지만 데이터가 없으면 에러, 있으면 그냥 완료
+        if (chunks.length === 0) {
+          finish(new Error("tcp timeout (no response)"));
+        } else {
+          console.log(`[TCP] ${logLabel} ← 응답 타임아웃 (partial data: ${Buffer.concat(chunks).length} bytes)`);
+          finish(null, null);
+        }
+      }
+    });
   });
 }
 
-function setRobotDo(ip, doId, status) {
-  return sendTcpCommand(ip, ROBOT_IO_PORT, ROBOT_DO_API, {
+function setRobotDo(ip, doId, status, logLabel = "") {
+  const payload = {
     id: Number(doId),
     status: status ? 1 : 0,
-  });
+  };
+  return sendTcpCommand(ip, ROBOT_IO_PORT, ROBOT_DO_API, payload, `${logLabel} DO${doId}=${status ? 1 : 0}`);
 }
 
-function sendManiCommand(ip, payload) {
+function sendManiCommand(ip, payload, logLabel = "") {
   const body = {
     CMD_ID: Number(payload.CMD_ID) || 0,
     CMD_FROM: Number(payload.CMD_FROM) || 0,
     CMD_TO: Number(payload.CMD_TO) || 0,
   };
-  return sendTcpCommand(ip, MANI_CMD_PORT, MANI_CMD_API, body);
+  return sendTcpCommand(ip, MANI_CMD_PORT, MANI_CMD_API, body, `${logLabel} MANI_CMD`);
 }
 
 function normalizeIoStatus(raw) {
@@ -199,12 +241,21 @@ function getRobotDiStatus(robot, diId) {
   }
 }
 
-async function waitForManiResult(robotId, taskId) {
+async function waitForManiResult(robotId, taskId, logLabel = "") {
   const started = Date.now();
+  let pollCount = 0;
   while (Date.now() - started <= MANI_WORK_TIMEOUT_MS) {
+    pollCount++;
     const fresh = await Robot.findByPk(robotId);
     const diOk = getRobotDiStatus(fresh, MANI_WORK_OK_DI);
     const diErr = getRobotDiStatus(fresh, MANI_WORK_ERR_DI);
+    
+    // 5초마다 상태 로그
+    if (pollCount % 10 === 1) {
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      console.log(`${logLabel}: [DI 폴링 ${elapsed}초] DI${MANI_WORK_OK_DI}=${diOk}, DI${MANI_WORK_ERR_DI}=${diErr}`);
+    }
+    
     if (diOk === true) return "success";
     if (diErr === true) return "error";
     if (taskId) {
@@ -299,13 +350,19 @@ async function executeStep(step, robot) {
     }
 
     if (!inFlightMani.has(step.id)) {
-      console.log(`${stepLabel}: MANI_WORK 시작 (CMD_ID=${cmdId}, FROM=${cmdFrom}, TO=${cmdTo})`);
+      console.log(`${stepLabel}: ══════════════════════════════════════════`);
+      console.log(`${stepLabel}: MANI_WORK 시작`);
+      console.log(`${stepLabel}:   Robot IP: ${robot.ip}`);
+      console.log(`${stepLabel}:   CMD_ID: ${cmdId}, CMD_FROM: ${cmdFrom}, CMD_TO: ${cmdTo}`);
+      console.log(`${stepLabel}:   DO Port: ${ROBOT_IO_PORT}, DO API: 0x${ROBOT_DO_API.toString(16)}, DO ID: ${MANI_WORK_DO_ID}`);
+      console.log(`${stepLabel}:   MANI Port: ${MANI_CMD_PORT}, MANI API: 0x${MANI_CMD_API.toString(16)}`);
       try {
-        console.log(`${stepLabel}: DO${MANI_WORK_DO_ID}=1 쓰기`);
-        await setRobotDo(robot.ip, MANI_WORK_DO_ID, true);
-        console.log(`${stepLabel}: MANI 명령 전송 (port=${MANI_CMD_PORT}, api=${MANI_CMD_API})`);
-        await sendManiCommand(robot.ip, payload);
+        console.log(`${stepLabel}: [1/2] DO${MANI_WORK_DO_ID}=1 전송 중...`);
+        await setRobotDo(robot.ip, MANI_WORK_DO_ID, true, stepLabel);
+        console.log(`${stepLabel}: [2/2] MANI 명령 전송 중...`);
+        await sendManiCommand(robot.ip, payload, stepLabel);
         inFlightMani.add(step.id);
+        console.log(`${stepLabel}: 명령 전송 완료, DI 응답 대기 시작`);
       } catch (err) {
         console.error(`${stepLabel}: MANI_WORK 명령 전송 실패:`, err.message);
         await markStepFailed(step);
@@ -313,36 +370,49 @@ async function executeStep(step, robot) {
       }
     }
 
-    console.log(`${stepLabel}: DI${MANI_WORK_OK_DI}(성공) 또는 DI${MANI_WORK_ERR_DI}(에러) 대기 중...`);
-    const result = await waitForManiResult(robot.id, step.task_id);
+    console.log(`${stepLabel}: DI${MANI_WORK_OK_DI}(성공) / DI${MANI_WORK_ERR_DI}(에러) 폴링 중...`);
+    const result = await waitForManiResult(robot.id, step.task_id, stepLabel);
     
     if (result === "success") {
-      console.log(`${stepLabel}: MANI_WORK 성공 (DI${MANI_WORK_OK_DI}=1)`);
+      console.log(`${stepLabel}: ✓ MANI_WORK 성공 (DI${MANI_WORK_OK_DI}=1 감지)`);
       inFlightMani.delete(step.id);
       try {
-        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false);
-      } catch {}
+        console.log(`${stepLabel}: DO${MANI_WORK_DO_ID}=0 리셋 중...`);
+        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false, stepLabel);
+      } catch (e) {
+        console.warn(`${stepLabel}: DO 리셋 실패 (무시): ${e.message}`);
+      }
+      console.log(`${stepLabel}: ══════════════════════════════════════════`);
       return true;
     }
     if (result === "error") {
-      console.error(`${stepLabel}: MANI_WORK 에러 (DI${MANI_WORK_ERR_DI}=1)`);
+      console.error(`${stepLabel}: ✗ MANI_WORK 에러 (DI${MANI_WORK_ERR_DI}=1 감지)`);
       inFlightMani.delete(step.id);
       try {
-        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false);
+        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false, stepLabel);
       } catch {}
       await markStepFailed(step);
+      console.log(`${stepLabel}: ══════════════════════════════════════════`);
       throw new Error("MANI_WORK failed (DI error)");
     }
     if (result === "timeout") {
-      console.error(`${stepLabel}: MANI_WORK 타임아웃 (${MANI_WORK_TIMEOUT_MS}ms)`);
+      console.error(`${stepLabel}: ✗ MANI_WORK 타임아웃 (${MANI_WORK_TIMEOUT_MS / 1000}초 경과)`);
       inFlightMani.delete(step.id);
       try {
-        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false);
+        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false, stepLabel);
       } catch {}
       await markStepFailed(step);
+      console.log(`${stepLabel}: ══════════════════════════════════════════`);
       throw new Error("MANI_WORK timeout");
     }
-    console.log(`${stepLabel}: MANI_WORK 대기 중...`);
+    if (result === "canceled") {
+      console.log(`${stepLabel}: MANI_WORK 취소됨 (태스크 상태 변경)`);
+      inFlightMani.delete(step.id);
+      try {
+        await setRobotDo(robot.ip, MANI_WORK_DO_ID, false, stepLabel);
+      } catch {}
+      return false;
+    }
     return false;
   }
   
@@ -423,16 +493,11 @@ async function progressTask(task, robot) {
 }
 
 async function handleRobot(robot, tasks) {
-  if (robotLocks.get(robot.id)) {
-    console.log(`[Executor] Robot ${robot.name}: 이전 처리 중, 스킵`);
-    return;
-  }
+  if (robotLocks.get(robot.id)) return;
   robotLocks.set(robot.id, true);
   try {
     const runningTask = tasks.find((t) => t.status === "RUNNING");
     const pendingTask = tasks.find((t) => t.status === "PENDING");
-    
-    console.log(`[Executor] Robot ${robot.name}: 태스크 처리 시작 (running=${runningTask?.id || 'none'}, pending=${pendingTask?.id || 'none'}, status="${robot.status}")`);
 
     if (runningTask) {
       await progressTask(runningTask, robot);
