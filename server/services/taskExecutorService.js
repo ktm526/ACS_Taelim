@@ -505,7 +505,7 @@ async function handleRobot(robot, tasks) {
     }
 
     if (pendingTask) {
-      if (robot.status === "대기") {
+      if (robot.status === "대기" || robot.status === "비상정지")  {
         console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps)`);
         await pendingTask.update({ status: "RUNNING", current_seq: 0 });
         await progressTask(pendingTask, robot);
