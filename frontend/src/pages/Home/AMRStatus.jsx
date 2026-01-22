@@ -39,7 +39,8 @@ import {
   HourglassOutlined,
   AimOutlined,
   SearchOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  CopyOutlined
 } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
@@ -1098,10 +1099,11 @@ export default function AMRStatus() {
         ]}
       >
         {selectedAmr && (
-          <div style={{ display: "flex", gap: 24, minHeight: 520 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 24, height: "calc(100vh - 280px)", minHeight: 450 }}>
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
               <Tabs
                 defaultActiveKey="summary"
+                style={{ flex: 1, display: "flex", flexDirection: "column" }}
                 items={[
                   {
                     key: "summary",
@@ -1278,28 +1280,42 @@ export default function AMRStatus() {
                     key: "json",
                     label: "추가정보(JSON)",
                     children: (
-                      <div
-                        style={{
-                          maxHeight: "calc(100vh - 400px)",
-                          minHeight: 200,
-                          overflow: "auto",
-                          background: "#f5f5f5",
-                          borderRadius: 6,
-                          padding: 12,
-                        }}
-                      >
-                        <Paragraph
-                          code
-                          copyable
+                      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                        <div
                           style={{
-                            whiteSpace: "pre-wrap",
-                            margin: 0,
-                            fontSize: 12,
-                            lineHeight: 1.5,
+                            flex: 1,
+                            minHeight: 0,
+                            overflow: "auto",
+                            background: "#1a1a2e",
+                            borderRadius: 8,
+                            padding: 16,
                           }}
                         >
-                          {formatJsonForDisplay(selectedAmr.additional_info)}
-                        </Paragraph>
+                          <pre
+                            style={{
+                              margin: 0,
+                              color: "#a9b7c6",
+                              fontSize: 12,
+                              lineHeight: 1.7,
+                              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                              whiteSpace: "pre-wrap",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {formatJsonForDisplay(selectedAmr.additional_info)}
+                          </pre>
+                        </div>
+                        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+                          <Button
+                            icon={<CopyOutlined />}
+                            onClick={() => {
+                              navigator.clipboard.writeText(formatJsonForDisplay(selectedAmr.additional_info));
+                              message.success("클립보드에 복사됨");
+                            }}
+                          >
+                            JSON 복사
+                          </Button>
+                        </div>
                       </div>
                     ),
                   },
@@ -1307,7 +1323,7 @@ export default function AMRStatus() {
               />
             </div>
 
-            <div style={{ width: 350, flexShrink: 0 }}>
+            <div style={{ width: 350, flexShrink: 0, overflow: "auto" }}>
               <CurrentTaskSteps amr={selectedAmr} />
             </div>
           </div>
