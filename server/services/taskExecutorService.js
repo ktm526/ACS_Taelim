@@ -12,7 +12,7 @@ const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
 const UNIT_ID = Number.parseInt(process.env.MODBUS_UNIT_ID || "1", 10);
 const WORD_MODE = (process.env.PLC_WORD_MODE || "holding").toLowerCase(); // holding | input
 const MANI_CMD_PORT = Number.parseInt(process.env.MANI_CMD_PORT || "19207", 10);
-const MANI_CMD_API = Number.parseInt(process.env.MANI_CMD_API || "3054", 10);
+const MANI_CMD_API = Number.parseInt(process.env.MANI_CMD_API || "4021", 10);
 const ROBOT_IO_PORT = Number.parseInt(process.env.ROBOT_IO_PORT || "19210", 10);
 const ROBOT_DO_API = Number.parseInt(process.env.ROBOT_DO_API || "6001", 10);
 const MANI_WORK_TIMEOUT_MS = Number.parseInt(
@@ -207,10 +207,22 @@ function setRobotDo(ip, doId, status, logLabel = "") {
 }
 
 function sendManiCommand(ip, payload, logLabel = "") {
+  // API 문서에 따른 형식:
+  // {
+  //   "type": "module",
+  //   "relative_path": "doosan_cmd.py",
+  //   "script": "{\"CMD_ID\": \"1\", \"CMD_FROM\": \"11\", \"CMD_TO\": \"21\", \"CMD_STOP\": \"0\"}"
+  // }
+  const cmdScript = {
+    CMD_ID: String(payload.CMD_ID || "0"),
+    CMD_FROM: String(payload.CMD_FROM || "0"),
+    CMD_TO: String(payload.CMD_TO || "0"),
+    CMD_STOP: String(payload.CMD_STOP || "0"),
+  };
   const body = {
-    CMD_ID: Number(payload.CMD_ID) || 0,
-    CMD_FROM: Number(payload.CMD_FROM) || 0,
-    CMD_TO: Number(payload.CMD_TO) || 0,
+    type: "module",
+    relative_path: "doosan_cmd.py",
+    script: JSON.stringify(cmdScript),
   };
   return sendTcpCommand(ip, MANI_CMD_PORT, MANI_CMD_API, body, `${logLabel} MANI_CMD`);
 }
