@@ -22,12 +22,14 @@ const OUT_ROWS = [1, 2, 3, 4, 5, 6];
 
 const CHECK_INTERVAL_MS = 1000;
 const CONFIG_TTL_MS = 2000;
+const STATUS_LOG_INTERVAL_MS = 5000; // 5초마다 상태 출력
 
 const sideLock = { L: false, R: false };
 const conveyorLock = new Map();
 let configCache = null;
 let configFetchedAt = 0;
 let checkTimer = null;
+let lastStatusLogTime = 0;
 
 function safeParse(raw, fallback) {
   if (raw == null) return fallback;
@@ -351,9 +353,9 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     return;
   }
 
-  const robot = await Robot.findOne({ where: { name: "M1000" } });
+  const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
   if (!robot) {
-    console.warn("[TaskCreate] M1000 로봇 없음");
+    console.warn("[TaskCreate] M500-S-02 로봇 없음");
     return;
   }
 
@@ -361,7 +363,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
   if (existingTask) {
-    console.log(`[TaskCreate] conveyor${conveyorIndex}: M1000 기존 태스크 진행 중`);
+    console.log(`[TaskCreate] conveyor${conveyorIndex}: M500-S-02 기존 태스크 진행 중`);
     return;
   }
 
@@ -453,6 +455,42 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
   );
 }
 
+async function logTaskCreateStatus(config) {
+  const now = Date.now();
+  if (now - lastStatusLogTime < STATUS_LOG_INTERVAL_MS) return;
+  lastStatusLogTime = now;
+
+  const statusLines = [];
+  statusLines.push("══════════════════════════════════════════");
+  statusLines.push("[TaskCreate] 작업 생성 조건 상태 (5초 주기)");
+
+  // 인스토커 L/R 상태
+  SIDES.forEach((side) => {
+    const workId = normalizeText(config.sideSignals?.[side]?.work_available_id);
+    if (workId) {
+      const value = isSignalOn(workId) ? 1 : 0;
+      statusLines.push(`  인스토커 ${side}: 작업가능(${workId})=${value} ${value === 1 ? "✓" : ""}`);
+    } else {
+      statusLines.push(`  인스토커 ${side}: 작업가능 ID 미설정`);
+    }
+  });
+
+  // 컨베이어 상태
+  (config.conveyors || []).forEach((item) => {
+    const index = item.index;
+    const qty4Id = normalizeText(item.input_qty_4_id);
+    const qty1Id = normalizeText(item.input_qty_1_id);
+    const productNo = item.product_no || "미설정";
+    const qty4Value = qty4Id && isSignalOn(qty4Id) ? 1 : 0;
+    const qty1Value = qty1Id && isSignalOn(qty1Id) ? 1 : 0;
+    const qty = qty4Value ? 4 : qty1Value ? 1 : 0;
+    statusLines.push(`  컨베이어 ${index}: 투입수량1(${qty1Id || "미설정"})=${qty1Value}, 투입수량4(${qty4Id || "미설정"})=${qty4Value}, 제품번호=${productNo} ${qty > 0 ? `✓ (qty=${qty})` : ""}`);
+  });
+
+  statusLines.push("══════════════════════════════════════════");
+  console.log(statusLines.join("\n"));
+}
+
 async function checkSide(side, config, activeTasks) {
   if (sideLock[side]) return;
   sideLock[side] = true;
@@ -503,6 +541,7 @@ function start() {
     try {
       const config = await loadConfig();
       const activeTasks = await getActiveTasks();
+      await logTaskCreateStatus(config);
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
       });
@@ -516,6 +555,7 @@ function start() {
     try {
       const config = await loadConfig();
       const activeTasks = await getActiveTasks();
+      await logTaskCreateStatus(config);
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
       });
