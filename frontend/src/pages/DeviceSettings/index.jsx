@@ -1256,7 +1256,7 @@ export default function DeviceSettings() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "30px repeat(3, 1fr)",
+                  gridTemplateColumns: `30px repeat(${OUT_FIELDS.length}, 1fr)`,
                   gap: 4,
                   alignItems: "center",
                   fontSize: 11,
@@ -1264,28 +1264,32 @@ export default function DeviceSettings() {
               >
                 <span style={{ fontWeight: 600 }}>#</span>
                 {OUT_FIELDS.map((f) => (
-                  <span key={f.key} style={{ fontWeight: 600 }}>{f.label}</span>
+                  <span key={f.key} style={{ fontWeight: 600, textAlign: "center" }}>{f.label}</span>
                 ))}
                 {OUT_ROWS.map((row) => (
                   <React.Fragment key={row}>
                     <span style={{ fontWeight: 500 }}>{row}</span>
                     {OUT_FIELDS.map((field) => {
                       const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
+                      const isNumber = field.isNumber;
                       return (
                         <div key={field.key} style={{ display: "flex", gap: 2, alignItems: "center" }}>
                           <Input
                             size="small"
+                            type={isNumber ? "number" : "text"}
                             value={value ?? ""}
                             onChange={(e) => handleOutstockerRowChange(side, row, field.key, e.target.value)}
-                            placeholder="ID"
+                            placeholder={isNumber ? "숫자" : "ID"}
                             style={{ flex: 1 }}
                           />
-                          <Tag
-                            color={value && plcValues?.[value] != null ? "blue" : "default"}
-                            style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
-                          >
-                            {value ? plcValues?.[value] ?? "-" : "-"}
-                          </Tag>
+                          {!isNumber && (
+                            <Tag
+                              color={value && plcValues?.[value] != null ? "blue" : "default"}
+                              style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
+                            >
+                              {value ? plcValues?.[value] ?? "-" : "-"}
+                            </Tag>
+                          )}
                         </div>
                       );
                     })}
