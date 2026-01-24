@@ -37,6 +37,8 @@ console.log('Loading healthRoutes...');
 app.use('/api/health', require('./routes/healthRoutes'));
 console.log('Loading configRoutes...');
 app.use('/api/config', require('./routes/configRoutes'));
+console.log('Loading taskLogRoutes...');
+app.use('/api/task-logs', require('./routes/taskLogRoutes'));
 
 /* ── ③ 정적 파일 (프런트) ───────────────────────── */
 app.use(express.static(path.join(__dirname, 'dist')));

@@ -7,6 +7,7 @@ import {
   SettingOutlined,
   MobileOutlined,
   LogoutOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAtom } from "jotai";
@@ -17,6 +18,7 @@ const items = [
   { key: "/", icon: <HomeOutlined />, label: "메인" },
   { key: "/map", icon: <ToolOutlined />, label: "맵 설정" },
   { key: "/devices", icon: <SettingOutlined />, label: "장치 설정" },
+  { key: "/task-logs", icon: <FileTextOutlined />, label: "태스크 로그" },
   { key: "/settings", icon: <SettingOutlined />, label: "기타 설정" },
   // { key: "/mobile", icon: <MobileOutlined />, label: "📱 모바일" },
 ];

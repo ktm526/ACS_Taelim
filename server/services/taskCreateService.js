@@ -12,7 +12,25 @@ const DeviceGrinder = require("../models/DeviceGrinder");
 const DeviceOutStocker = require("../models/DeviceOutStocker");
 const DeviceConveyor = require("../models/DeviceConveyor");
 const Robot = require("../models/Robot");
-const { Task, TaskStep } = require("../models");
+const { Task, TaskStep, TaskLog } = require("../models");
+
+// 로그 기록 함수
+async function logTaskEvent(taskId, event, message, options = {}) {
+  try {
+    await TaskLog.create({
+      task_id: taskId,
+      robot_id: options.robotId || null,
+      robot_name: options.robotName || null,
+      step_seq: options.stepSeq ?? null,
+      step_type: options.stepType || null,
+      event,
+      message,
+      payload: options.payload ? JSON.stringify(options.payload) : null,
+    });
+  } catch (err) {
+    console.error('[TaskLog] 로그 기록 실패:', err.message);
+  }
+}
 
 const SIDES = ["L", "R"];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
@@ -322,9 +340,12 @@ async function createTaskForSide(side, config, activeTasks) {
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  //console.log(
-   // `[TaskCreate] ${side}: 작업가능=1 → Task#${task.id} 발행 (${steps.length} steps)`
-  //);
+  console.log(`[TaskCreate] ${side}: Task#${task.id} 생성 (${steps.length} 스텝)`);
+  await logTaskEvent(task.id, "TASK_CREATED", `인스토커 ${side} → 연마기 태스크 생성 (${steps.length} 스텝)`, {
+    robotId: robot.id,
+    robotName: robot.name,
+    payload: { side, stepsCount: steps.length },
+  });
 }
 
 function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
@@ -554,6 +575,11 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
   console.log(
     `[TaskCreate] conveyor${conveyorIndex}: 투입수량 ${qty} → Task#${task.id} 발행 (${steps.length} steps)`
   );
+  await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어${conveyorIndex} 태스크 생성 (${steps.length} 스텝, 수량 ${qty})`, {
+    robotId: robot.id,
+    robotName: robot.name,
+    payload: { conveyorIndex, qty, stepsCount: steps.length },
+  });
 }
 
 async function logTaskCreateStatus(config) {

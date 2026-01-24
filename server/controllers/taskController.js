@@ -1,6 +1,6 @@
 /* controllers/taskController.js */
 const { Op } = require('sequelize');
-const { Task, TaskStep } = require('../models');
+const { Task, TaskStep, TaskLog } = require('../models');
 const Robot = require('../models/Robot');
 
 const TASK_TTL_MS = 30 * 1000;
@@ -115,11 +115,27 @@ exports.cancel = async (req, res) => {
   const task = await Task.findByPk(req.params.id);
   if (!task) return res.sendStatus(404);
 
+  // 로봇 정보 조회
+  const robot = task.robot_id ? await Robot.findByPk(task.robot_id) : null;
+
   await task.update({ status: 'CANCELED' });
   await TaskStep.update(
     { status: 'FAILED' },
     { where: { task_id: task.id, status: ['PENDING', 'RUNNING'] } },
   );
+
+  // 로그 기록
+  try {
+    await TaskLog.create({
+      task_id: task.id,
+      robot_id: task.robot_id,
+      robot_name: robot?.name || null,
+      event: 'TASK_CANCELED',
+      message: '사용자에 의해 태스크 취소됨',
+    });
+  } catch (err) {
+    console.error('[TaskLog] 취소 로그 기록 실패:', err.message);
+  }
 
   res.json({ success: true });
 };

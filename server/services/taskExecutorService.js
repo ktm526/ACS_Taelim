@@ -2,10 +2,28 @@
 const ModbusRTU = require("modbus-serial");
 const net = require("net");
 const plc = require("./plcMonitorService");
-const { Task, TaskStep } = require("../models");
+const { Task, TaskStep, TaskLog } = require("../models");
 const Robot = require("../models/Robot");
 const MapDB = require("../models/Map");
 const { sendGotoNav } = require("./navService");
+
+// 로그 기록 함수
+async function logTaskEvent(taskId, event, message, options = {}) {
+  try {
+    await TaskLog.create({
+      task_id: taskId,
+      robot_id: options.robotId || null,
+      robot_name: options.robotName || null,
+      step_seq: options.stepSeq ?? null,
+      step_type: options.stepType || null,
+      event,
+      message,
+      payload: options.payload ? JSON.stringify(options.payload) : null,
+    });
+  } catch (err) {
+    console.error('[TaskLog] 로그 기록 실패:', err.message);
+  }
+}
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
@@ -361,9 +379,20 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
   return "timeout";
 }
 
-async function markStepFailed(step) {
+async function markStepFailed(step, robot, errorMsg) {
   await step.update({ status: "FAILED" });
   await Task.update({ status: "FAILED" }, { where: { id: step.task_id } });
+  await logTaskEvent(step.task_id, "STEP_FAILED", errorMsg || `스텝 #${step.seq} (${step.type}) 실패`, {
+    robotId: robot?.id,
+    robotName: robot?.name,
+    stepSeq: step.seq,
+    stepType: step.type,
+    payload: parsePayload(step),
+  });
+  await logTaskEvent(step.task_id, "TASK_FAILED", `스텝 #${step.seq} 실패로 태스크 중단`, {
+    robotId: robot?.id,
+    robotName: robot?.name,
+  });
 }
 
 async function waitUntil(cond, ms, taskId) {
@@ -441,7 +470,7 @@ async function executeStep(step, robot) {
 
     if (cmdId === undefined || cmdFrom === undefined || cmdTo === undefined || vision_check == undefined) {
       console.error(`${stepLabel}: MANI_WORK payload 누락 (ID=${cmdId}, FROM=${cmdFrom}, TO=${cmdTo})`);
-      await markStepFailed(step);
+      await markStepFailed(step, robot, "MANI_WORK payload 누락");
       throw new Error("MANI_WORK payload missing");
     }
 
@@ -461,7 +490,7 @@ async function executeStep(step, robot) {
         console.log(`${stepLabel}: 명령 전송 완료, DI 응답 대기 시작`);
       } catch (err) {
         console.error(`${stepLabel}: MANI_WORK 명령 전송 실패:`, err.message);
-        await markStepFailed(step);
+        await markStepFailed(step, robot, `MANI_WORK 명령 전송 실패: ${err.message}`);
         throw err;
       }
     }
@@ -487,7 +516,7 @@ async function executeStep(step, robot) {
       try {
         await setRobotDo(robot.ip, MANI_WORK_DO_ID, false, stepLabel);
       } catch {}
-      await markStepFailed(step);
+      await markStepFailed(step, robot, `MANI_WORK 에러 (DI${MANI_WORK_ERR_DI}=1 감지)`);
       console.log(`${stepLabel}: ══════════════════════════════════════════`);
       throw new Error("MANI_WORK failed (DI error)");
     }
@@ -497,7 +526,7 @@ async function executeStep(step, robot) {
       try {
         await setRobotDo(robot.ip, MANI_WORK_DO_ID, false, stepLabel);
       } catch {}
-      await markStepFailed(step);
+      await markStepFailed(step, robot, `MANI_WORK 타임아웃 (${MANI_WORK_TIMEOUT_MS / 1000}초 경과)`);
       console.log(`${stepLabel}: ══════════════════════════════════════════`);
       throw new Error("MANI_WORK timeout");
     }
@@ -541,6 +570,10 @@ async function progressTask(task, robot) {
   if (!steps.length) {
     console.log(`[Executor] Task#${task.id}: 스텝 없음 → DONE`);
     await task.update({ status: "DONE" });
+    await logTaskEvent(task.id, "TASK_DONE", "스텝 없음으로 완료", {
+      robotId: robot.id,
+      robotName: robot.name,
+    });
     return;
   }
   let seq = Number(task.current_seq ?? 0);
@@ -548,6 +581,10 @@ async function progressTask(task, robot) {
   if (!step) {
     console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
     await task.update({ status: "DONE" });
+    await logTaskEvent(task.id, "TASK_DONE", `모든 ${steps.length}개 스텝 완료`, {
+      robotId: robot.id,
+      robotName: robot.name,
+    });
     return;
   }
 
@@ -559,6 +596,13 @@ async function progressTask(task, robot) {
   if (step.status !== "RUNNING") {
     console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 시작`);
     await step.update({ status: "RUNNING" });
+    await logTaskEvent(task.id, "STEP_STARTED", `스텝 #${seq} (${step.type}) 시작`, {
+      robotId: robot.id,
+      robotName: robot.name,
+      stepSeq: seq,
+      stepType: step.type,
+      payload: parsePayload(step),
+    });
   }
 
   const ok = await executeStep(step, robot);
@@ -579,12 +623,22 @@ async function progressTask(task, robot) {
 
   console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 완료 ✓`);
   await step.update({ status: "DONE" });
+  await logTaskEvent(task.id, "STEP_DONE", `스텝 #${seq} (${step.type}) 완료`, {
+    robotId: robot.id,
+    robotName: robot.name,
+    stepSeq: seq,
+    stepType: step.type,
+  });
   await task.update({ current_seq: seq + 1 });
 
   const lastSeq = steps[steps.length - 1]?.seq;
   if (seq + 1 > lastSeq) {
     console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
     await task.update({ status: "DONE" });
+    await logTaskEvent(task.id, "TASK_DONE", `모든 ${steps.length}개 스텝 완료`, {
+      robotId: robot.id,
+      robotName: robot.name,
+    });
   }
 }
 
@@ -615,6 +669,10 @@ async function handleRobot(robot, tasks, hasGlobalRunningTask) {
       if (robot.status === "대기" || robot.status === "작업 중") {
         console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps, 로봇상태: ${robot.status})`);
         await pendingTask.update({ status: "RUNNING", current_seq: 0 });
+        await logTaskEvent(pendingTask.id, "TASK_STARTED", `태스크 시작 (${pendingTask.steps?.length || 0} 스텝)`, {
+          robotId: robot.id,
+          robotName: robot.name,
+        });
         await progressTask(pendingTask, robot);
       } else {
         // 로봇이 대기/작업 중 상태가 아니면 대기
