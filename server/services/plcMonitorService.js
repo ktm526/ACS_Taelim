@@ -26,11 +26,11 @@ const BIT_MODE = (process.env.PLC_BIT_MODE || "word_holding").toLowerCase(); // 
 const WORD_MODE = (process.env.PLC_WORD_MODE || "holding").toLowerCase(); // holding | input
 
 const BIT_START = 6000;
-const BIT_END = 6021;
+const BIT_END = 6029;  // 6023까지 사용하므로 여유있게 확장
 const BIT_QTY = BIT_END - BIT_START + 1;
 
 const WORD_START = 6030;
-const WORD_END = 6099;
+const WORD_END = 6149;  // 6120까지 사용하므로 여유있게 확장
 const WORD_QTY = WORD_END - WORD_START + 1;
 
 const client = new ModbusRTU();
