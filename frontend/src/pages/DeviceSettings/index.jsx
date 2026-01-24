@@ -15,6 +15,7 @@ const OUT_FIELDS = [
   { key: "load_ready_id", label: "적재 가능" },
   { key: "jig_state_id", label: "공지그 상태" },
   { key: "model_no_id", label: "모델 번호" },
+  { key: "mani_pos", label: "Mani Pos", isNumber: true },
 ];
 const CONVEYOR_INDEXES = [1, 2];
 const CONVEYOR_SIGNAL_FIELDS = [
@@ -91,6 +92,7 @@ function createDefaultOutStocker() {
         load_ready_id: null,
         jig_state_id: null,
         model_no_id: null,
+        mani_pos: null,
       };
     });
     sides[side] = {
@@ -104,7 +106,7 @@ function createDefaultOutStocker() {
 
 function createDefaultConveyors() {
   return CONVEYOR_INDEXES.map((index) => {
-    const item = { index, amr_pos: null, product_no: null };
+    const item = { index, amr_pos: null, product_no: null, mani_pos: null };
     CONVEYOR_SIGNAL_FIELDS.forEach((field) => {
       item[field.key] = null;
     });
@@ -625,6 +627,12 @@ export default function DeviceSettings() {
         String(item.index),
         "product_no",
         item.product_no ?? "",
+      ]);
+      rows.push([
+        "conveyor",
+        String(item.index),
+        "mani_pos",
+        item.mani_pos ?? "",
       ]);
     });
     return rows;
@@ -1381,6 +1389,17 @@ export default function DeviceSettings() {
                     handleConveyorChange(item.index, "product_no", e.target.value)
                   }
                   placeholder="제품 번호"
+                />
+                <Tag color="default">-</Tag>
+                <span>Mani Pos</span>
+                <Input
+                  size="small"
+                  type="number"
+                  value={item.mani_pos ?? ""}
+                  onChange={(e) =>
+                    handleConveyorChange(item.index, "mani_pos", e.target.value)
+                  }
+                  placeholder="숫자"
                 />
                 <Tag color="default">-</Tag>
               </div>

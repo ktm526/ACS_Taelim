@@ -250,19 +250,21 @@ async function createTaskForSide(side, config, activeTasks) {
   steps.push({ type: "NAV", payload: JSON.stringify({ dest: pickupStation }) });
 
   // 인스토커 -> AMR 적재 (1칸 ~ 6칸 순서)
+  // CMD_ID는 항상 1, CMD_FROM=인스토커 mani_pos, CMD_TO=AMR 슬롯
   slots.forEach((slot) => {
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: slot.index,
-        CMD_FROM: slot.mani_pos,
-        CMD_TO: slot.index,
-        VISION_CHECK: 1,
+        CMD_ID: 1, // 항상 1
+        CMD_FROM: Number(slot.mani_pos), // 인스토커 mani_pos
+        CMD_TO: slot.index, // AMR 슬롯
+        VISION_CHECK: 1, // 인스토커에서 픽업할 때는 1
       }),
     });
   });
 
   // AMR -> 연마기 투입 (나중에 넣은 제품부터, 6개 순서쌍)
+  // CMD_ID는 항상 1, CMD_FROM=AMR 슬롯, CMD_TO=연마기 mani_pos
   const slotTargetsDesc = [...slotTargets].sort(
     (a, b) => b.slotIndex - a.slotIndex
   );
@@ -274,10 +276,10 @@ async function createTaskForSide(side, config, activeTasks) {
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: target.slotIndex,
-        CMD_FROM: target.slotIndex,
-        CMD_TO: target.grinder_mani_pos,
-        VISION_CHECK: 0,
+        CMD_ID: 1, // 항상 1
+        CMD_FROM: target.slotIndex, // AMR 슬롯
+        CMD_TO: Number(target.grinder_mani_pos), // 연마기 mani_pos
+        VISION_CHECK: 0, // 연마기에 놓을 때는 0
       }),
     });
   });
@@ -320,8 +322,9 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
       const rowData = sideData.rows?.[row] || {};
       const jigState = resolvePlcValue(rowData.jig_state_id);
       const modelNo = resolvePlcValue(rowData.model_no_id);
+      const maniPos = normalizeText(rowData.mani_pos);
       if (jigState === 1 && modelNo !== null && Number(modelNo) === Number(productNo)) {
-        rows.push({ side, row, amr_pos: amrPos });
+        rows.push({ side, row, amr_pos: amrPos, mani_pos: maniPos });
         if (rows.length >= qty) return rows;
       }
     }
@@ -414,9 +417,25 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     return;
   }
 
+  // 컨베이어 mani_pos
+  const conveyorManiPos = normalizeText(conveyorItem.mani_pos);
+  if (!conveyorManiPos) {
+    console.warn(`[TaskCreate] conveyor${conveyorIndex}: Mani Pos 없음`);
+    return;
+  }
+
   const steps = [];
   // (AMR 이동 - MANI WORK) * qty  (아웃스토커 픽업)
+  // AMR 슬롯은 1부터 순서대로 사용
   rows.slice(0, qty).forEach((rowInfo, idx) => {
+    const amrSlot = idx + 1; // AMR 슬롯 1, 2, 3, ...
+    const outstockerManiPos = rowInfo.mani_pos;
+    
+    if (!outstockerManiPos) {
+      console.warn(`[TaskCreate] 아웃스토커 ${rowInfo.side}-${rowInfo.row}: Mani Pos 없음`);
+      return;
+    }
+    
     steps.push({
       type: "NAV",
       payload: JSON.stringify({ dest: rowInfo.amr_pos }),
@@ -424,10 +443,10 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: idx + 1,
-        CMD_FROM: rowInfo.row,
-        CMD_TO: idx + 1,
-        VISION_CHECK: 1,
+        CMD_ID: 1, // 항상 1
+        CMD_FROM: Number(outstockerManiPos), // 아웃스토커 mani_pos
+        CMD_TO: amrSlot, // AMR 슬롯
+        VISION_CHECK: 1, // 아웃스토커에서 픽업할 때는 1
       }),
     });
   });
@@ -440,6 +459,8 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
 
   // (컨베이어 시퀀스) * qty
   for (let i = 0; i < qty; i += 1) {
+    const amrSlot = i + 1; // AMR 슬롯 1, 2, 3, ...
+    
     steps.push({
       type: "PLC_WRITE",
       payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
@@ -459,10 +480,10 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: i + 1,
-        CMD_FROM: i + 1,
-        CMD_TO: conveyorIndex,
-        VISION_CHECK: 0,
+        CMD_ID: 1, // 항상 1
+        CMD_FROM: amrSlot, // AMR 슬롯
+        CMD_TO: Number(conveyorManiPos), // 컨베이어 mani_pos
+        VISION_CHECK: 0, // 컨베이어에 놓을 때는 0
       }),
     });
     steps.push({

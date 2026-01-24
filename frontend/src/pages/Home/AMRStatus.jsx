@@ -40,7 +40,9 @@ import {
   AimOutlined,
   SearchOutlined,
   ThunderboltOutlined,
-  CopyOutlined
+  CopyOutlined,
+  UpOutlined,
+  DownOutlined,
 } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
@@ -499,28 +501,49 @@ export default function AMRStatus() {
   }, []);
 
   // ──────────────────────────────────────────────────────────────
-  // TaskSteps 컴포넌트 (pause/resume/cancel 버튼) - 메모이제이션 적용
-  const CurrentTaskSteps = useCallback(({ amr }) => {
-    // 스크롤 컨테이너 ref
+  // TaskSteps 컴포넌트 - 별도 컴포넌트로 분리하여 불필요한 리렌더링 방지
+  const CurrentTaskSteps = React.memo(({ amr }) => {
+    // 스크롤 위치 저장용 ref
+    const scrollPositionRef = useRef(0);
     const stepsContainerRef = useRef(null);
+    // 확장된 스텝 (상세 보기)
+    const [expandedStepSeq, setExpandedStepSeq] = useState(null);
     // 태스크 완료/취소 상태를 추적하는 로컬 상태
     const [isTaskCancelled, setIsTaskCancelled] = useState(false);
+    // 이전 데이터 참조 (불필요한 스크롤 초기화 방지)
+    const prevDataRef = useRef(null);
     
-    // AMR이 변경될 때마다 취소 상태 초기화
+    // AMR이 변경될 때만 취소 상태 초기화
     useEffect(() => {
       setIsTaskCancelled(false);
+      setExpandedStepSeq(null);
     }, [amr?.id]);
     
-    const { data, error, isLoading, isFetching, refetch } = useQuery({
-      enabled: !!amr && !isTaskCancelled, // isTaskCancelled가 true면 쿼리 비활성화
+    // 스크롤 위치 저장
+    const saveScrollPosition = useCallback(() => {
+      if (stepsContainerRef.current) {
+        scrollPositionRef.current = stepsContainerRef.current.scrollTop;
+      }
+    }, []);
+    
+    // 스크롤 위치 복원
+    const restoreScrollPosition = useCallback(() => {
+      if (stepsContainerRef.current && scrollPositionRef.current > 0) {
+        stepsContainerRef.current.scrollTop = scrollPositionRef.current;
+      }
+    }, []);
+    
+    const { data, error, isLoading } = useQuery({
+      enabled: !!amr && !isTaskCancelled,
       queryKey: ["currentTask", amr?.id],
       queryFn: async () => {
+        // 쿼리 전 스크롤 위치 저장
+        saveScrollPosition();
+        
         try {
           const r = await fetch(`${API}/api/robots/${amr.id}/current-task`);
           
-          // 204 No Content 또는 404 - 태스크 없음
           if (r.status === 204 || r.status === 404) {
-            console.log(`[CurrentTaskSteps] ${amr.name}: 태스크 없음 (${r.status})`);
             setIsTaskCancelled(true);
             return null;
           }
@@ -531,20 +554,14 @@ export default function AMRStatus() {
           
           const taskData = await r.json();
           
-          // 태스크 데이터가 유효하지 않으면 태스크 취소 상태로 설정
           if (!taskData || !taskData.steps || taskData.steps.length === 0) {
-            console.log(`[CurrentTaskSteps] ${amr.name}: 유효하지 않은 태스크 데이터`);
             setIsTaskCancelled(true);
             return null;
           }
           
-          // 유효한 태스크 데이터가 있으면 취소 상태 해제
           setIsTaskCancelled(false);
-          console.log(`[CurrentTaskSteps] ${amr.name}: 유효한 태스크 발견 (${taskData.task_id})`);
           return taskData;
         } catch (error) {
-          console.error(`[CurrentTaskSteps] ${amr.name}: 에러 - ${error.message}`);
-          // 네트워크 오류나 특정 상태코드는 태스크 없음으로 처리
           if (error.message.includes('204') || 
               error.message.includes('404') || 
               error.message.includes('Failed to fetch')) {
@@ -555,44 +572,42 @@ export default function AMRStatus() {
         }
       },
       refetchInterval: (data) => {
-        // 태스크가 취소되었거나 데이터가 null이면 새로고침 중단
-        if (isTaskCancelled || data === null) {
-          console.log(`[CurrentTaskSteps] ${amr?.name}: 새로고침 중단 (isTaskCancelled: ${isTaskCancelled}, data: ${data})`);
-          return false;
-        }
+        if (isTaskCancelled || data === null) return false;
         return 3000;
       },
       refetchIntervalInBackground: false,
       refetchOnMount: true,
-      refetchOnWindowFocus: false, // 창 포커스 시 새로고침 비활성화
-      refetchOnReconnect: false, // 재연결 시 새로고침 비활성화
-      staleTime: 1000, // 1초로 설정하여 빠른 업데이트
-      gcTime: 5000, // 5초로 줄여서 캐시 빨리 정리
-      retry: (failureCount, error) => {
-        // 204, 404나 네트워크 오류는 재시도하지 않음
-        if (error?.message?.includes('204') || 
-            error?.message?.includes('404') || 
-            error?.message?.includes('Failed to fetch')) {
-          return false;
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 2000,
+      gcTime: 5000,
+      retry: false,
+      // 구조적 공유를 비활성화하여 동일한 데이터일 때 리렌더링 방지
+      structuralSharing: (oldData, newData) => {
+        if (!oldData || !newData) return newData;
+        // task_id와 current_seq가 같으면 이전 데이터 유지
+        if (oldData.task_id === newData.task_id && 
+            oldData.current_seq === newData.current_seq &&
+            oldData.paused === newData.paused) {
+          // steps 상태도 비교
+          const oldStepsStr = JSON.stringify(oldData.steps?.map(s => ({ seq: s.seq, status: s.status })));
+          const newStepsStr = JSON.stringify(newData.steps?.map(s => ({ seq: s.seq, status: s.status })));
+          if (oldStepsStr === newStepsStr) {
+            return oldData; // 이전 데이터 유지
+          }
         }
-        return failureCount < 1;
-      },
-      // 에러 발생 시 null로 폴백하고 쿼리 비활성화
-      onError: (error) => {
-        console.log(`[CurrentTaskSteps] ${amr?.name}: onError - ${error.message}`);
-        if (error?.message?.includes('204') || error?.message?.includes('404')) {
-          setIsTaskCancelled(true);
-          qc.setQueryData(["currentTask", amr?.id], null);
-        }
-      },
-      // 성공 시에도 데이터 확인
-      onSuccess: (data) => {
-        if (data === null) {
-          console.log(`[CurrentTaskSteps] ${amr?.name}: onSuccess with null data`);
-          setIsTaskCancelled(true);
-        }
+        return newData;
       },
     });
+    
+    // 데이터 변경 시 스크롤 위치 복원
+    useEffect(() => {
+      if (data && prevDataRef.current) {
+        // 데이터가 있고 이전 데이터도 있으면 스크롤 복원
+        requestAnimationFrame(restoreScrollPosition);
+      }
+      prevDataRef.current = data;
+    }, [data, restoreScrollPosition]);
 
     // pause/restart/cancel API 호출
     const pauseMut = useMutation({
@@ -620,23 +635,15 @@ export default function AMRStatus() {
         fetch(`${API}/api/tasks/${data?.task_id}`, { method: "DELETE" }),
       onSuccess: () => {
         message.success("취소");
-        console.log(`[CurrentTaskSteps] ${amr?.name}: 태스크 취소 완료`);
-        // 태스크 취소 상태로 설정하여 추가 API 호출 방지
         setIsTaskCancelled(true);
-        // 캐시를 즉시 null로 설정하여 UI 즉시 업데이트
         qc.setQueryData(["currentTask", amr?.id], null);
-        // 추가로 invalidate도 호출 (혹시 모를 상황 대비)
         qc.invalidateQueries(["currentTask", amr?.id]);
-        // 강제로 쿼리 비활성화를 위해 잠깐 기다린 후 다시 무효화
-        setTimeout(() => {
-          qc.invalidateQueries(["currentTask", amr?.id]);
-        }, 100);
       },
       onError: () => message.error("취소 실패"),
     });
 
     // 패스워드 확인 후 태스크 취소
-    const handleCancelWithPassword = () => {
+    const handleCancelWithPassword = useCallback(() => {
       passwordConfirm.showPasswordConfirm(
         () => {
           cancelMut.mutate();
@@ -646,247 +653,247 @@ export default function AMRStatus() {
           description: `관리자 비밀번호가 필요합니다.\n\nAMR "${amr?.name}"의 태스크를 취소하시겠습니까?`
         }
       );
-    };
+    }, [amr?.name, cancelMut, passwordConfirm]);
 
-    // 스텝 타입별 아이콘 반환 (메모이제이션)
+    // 스텝 타입별 아이콘 반환
     const getStepIcon = useCallback((stepType) => {
       switch (stepType) {
         case 'NAV':
         case 'NAV_PRE':
           return <CarOutlined />;
+        case 'MANI_WORK':
+          return <ToolOutlined />;
+        case 'PLC_WRITE':
+        case 'PLC_READ':
+          return <ThunderboltOutlined />;
         case 'JACK_UP':
         case 'JACK_DOWN':
         case 'JACK':
           return <ToolOutlined />;
         case 'WAIT_FREE_PATH':
           return <HourglassOutlined />;
-        case 'NAV_OR_BUFFER':
-          return <AimOutlined />;
-        case 'CHECK_BUFFER_BEFORE_NAV':
-        case 'CHECK_BUFFER_WITHOUT_CHARGING':
-          return <SearchOutlined />;
         default:
           return <ClockCircleOutlined />;
       }
     }, []);
 
-    // 스텝 상태별 아이콘과 상태 결정 (메모이제이션)
-    const getStepStatusInfo = useCallback((step, currentSeq) => {
-      if (step.seq < currentSeq) {
-        return { 
-          status: 'finish', 
-          icon: <CheckCircleOutlined style={{ color: '#096dd9' }} />
-        };
-      } else if (step.seq === currentSeq) {
-        switch (step.status) {
-          case 'RUNNING':
-            return { 
-              status: 'process', 
-              icon: <LoadingOutlined style={{ color: '#1890ff' }} />
-            };
-          case 'PAUSED':
-            return { 
-              status: 'error', 
-              icon: <PauseCircleOutlined style={{ color: '#faad14' }} />
-            };
-          case 'FAILED':
-            return { 
-              status: 'error', 
-              icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />
-            };
-          default:
-            return { 
-              status: 'process', 
-              icon: <LoadingOutlined style={{ color: '#1890ff' }} />
-            };
-        }
-      } else {
-        return { 
-          status: 'wait', 
-          icon: <ClockCircleOutlined style={{ color: '#d9d9d9' }} />
-        };
-      }
-    }, []);
-
-    // 스텝 요약 정보 (메모이제이션)
+    // 스텝 요약 정보
     const getStepSummary = useCallback((step) => {
-      const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
-      switch (step.type) {
-        case 'NAV':
-        case 'NAV_PRE':
-          return `→ ${p.dest}`;
-        case 'JACK_UP':
-          return "잭 올리기";
-        case 'JACK_DOWN':
-          return "잭 내리기";
-        case 'WAIT_FREE_PATH':
-          return "경로 대기";
-        case 'NAV_OR_BUFFER':
-          return `→ ${p.primary || p.dest || '목적지'}`;
-        case 'CHECK_BUFFER_BEFORE_NAV':
-        case 'CHECK_BUFFER_WITHOUT_CHARGING':
-          return `버퍼 확인 (${p.target || '대상'})`;
-        case 'FIND_EMPTY_B_BUFFER':
-          return "빈 B 버퍼 찾기";
-        case 'CHECK_BATTERY_AFTER_BUFFER':
-          return "배터리 체크";
-        default:
-          return step.type;
+      try {
+        const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
+        switch (step.type) {
+          case 'NAV':
+          case 'NAV_PRE':
+            return `→ ${p.dest || '?'}`;
+          case 'MANI_WORK':
+            return `매니 ${p.CMD_FROM}→${p.CMD_TO}`;
+          case 'PLC_WRITE':
+            return `PLC ${p.PLC_BIT}=${p.PLC_DATA}`;
+          case 'PLC_READ':
+            return `PLC ${p.PLC_ID}==${p.EXPECTED}`;
+          case 'JACK_UP':
+            return "잭 올리기";
+          case 'JACK_DOWN':
+            return "잭 내리기";
+          default:
+            return step.type;
+        }
+      } catch {
+        return step.type;
       }
     }, []);
 
-    // 디버깅을 위한 로그 (개발 중에만)
-    if (import.meta.env.DEV) {
-      console.log(`[CurrentTaskSteps] ${amr?.name} - data: ${data === null ? 'null' : data ? `exists(task_id:${data.task_id})` : 'undefined'}, isLoading: ${isLoading}, error: ${error?.message || 'none'}, isTaskCancelled: ${isTaskCancelled}, enabled: ${!!amr && !isTaskCancelled}`);
-      if (data && data.steps) {
-        console.log(`[CurrentTaskSteps] ${amr?.name} - steps: ${data.steps.length}, current_seq: ${data.current_seq}, paused: ${data.paused}`);
+    // 스텝 상세 정보 포맷팅
+    const getStepDetailPayload = useCallback((step) => {
+      try {
+        const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
+        return JSON.stringify(p, null, 2);
+      } catch {
+        return step.payload || "{}";
       }
-    }
+    }, []);
 
-    // 항상 같은 구조를 유지하되 내용만 변경
+    // 스텝 클릭 핸들러
+    const handleStepClick = useCallback((seq) => {
+      setExpandedStepSeq(prev => prev === seq ? null : seq);
+    }, []);
+
     return (
       <Card
         size="small"
         bordered
-        bodyStyle={{ padding: 16, height: 700, display: 'flex', flexDirection: 'column' }}
-        style={{ width: '100%', maxWidth: 350 }}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 600 }}>현재 태스크</span>
+            {data && (
+              <Tag 
+                color={data.paused ? 'orange' : 'blue'} 
+                icon={data.paused ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                style={{ fontSize: '11px', marginLeft: 'auto' }}
+              >
+                {data.paused ? '일시정지' : '실행중'}
+              </Tag>
+            )}
+          </div>
+        }
+        bodyStyle={{ padding: 12, height: 'calc(100% - 46px)', display: 'flex', flexDirection: 'column' }}
+        style={{ width: '100%', height: '100%' }}
       >
         {data && data.steps && data.steps.length > 0 ? (
-          // 태스크 데이터가 있는 경우
           <>
-            {/* 헤더 */}
-            <div style={{ marginBottom: 12, flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text strong style={{ fontSize: 15 }}>
-                  Task #{data.task_id}
+            {/* 태스크 요약 */}
+            <div style={{ 
+              marginBottom: 12, 
+              padding: 10, 
+              background: '#f5f5f5', 
+              borderRadius: 6,
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text strong>Task #{data.task_id}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {data.current_seq + 1} / {data.steps.length} 스텝
                 </Text>
-                <Tag 
-                  color={data.paused ? 'orange' : 'blue'} 
-                  icon={data.paused ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                  style={{ fontSize: '11px' }}
-                >
-                  {data.paused ? '일시정지' : '실행중'}
-                </Tag>
               </div>
-              
               <Progress 
-                percent={Math.round((data.current_seq / data.steps.length) * 100)} 
+                percent={Math.round(((data.current_seq + 1) / data.steps.length) * 100)} 
                 size="small" 
                 status={data.paused ? 'exception' : 'active'}
-                format={() => `${data.current_seq}/${data.steps.length}`}
+                showInfo={false}
               />
             </div>
 
-            {/* Steps */}
-            <div style={{ marginBottom: 12, flex: 1, overflow: 'hidden', minHeight: 0 }}>
-              <div 
-                ref={stepsContainerRef}
-                style={{ 
-                  height: '100%',
-                  overflowY: 'auto',
-                  overflowX: 'hidden',
-                  paddingRight: '4px',
-                }}
-              >
-                <div style={{ padding: '8px 0' }}>
-                  {data.steps.map((step, index) => {
-                    const isCurrentStep = step.seq === data.current_seq;
-                    const isCompleted = step.seq < data.current_seq;
-                    const summary = getStepSummary(step);
-                    
-                    return (
-                      <div 
-                        key={step.seq}
-                        style={{ 
+            {/* 스텝 목록 - 스크롤 가능 영역 */}
+            <div 
+              ref={stepsContainerRef}
+              style={{ 
+                flex: 1, 
+                overflowY: 'auto', 
+                overflowX: 'hidden',
+                marginBottom: 12,
+                paddingRight: 4,
+              }}
+              onScroll={saveScrollPosition}
+            >
+              {data.steps.map((step, index) => {
+                const isCurrentStep = step.seq === data.current_seq;
+                const isCompleted = step.seq < data.current_seq;
+                const isExpanded = expandedStepSeq === step.seq;
+                
+                return (
+                  <div 
+                    key={step.seq}
+                    style={{ marginBottom: index === data.steps.length - 1 ? 0 : 8 }}
+                  >
+                    {/* 스텝 헤더 (클릭 가능) */}
+                    <div 
+                      onClick={() => handleStepClick(step.seq)}
+                      style={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '8px 10px',
+                        background: isCurrentStep ? '#e6f7ff' : isCompleted ? '#f6ffed' : '#fafafa',
+                        border: `1px solid ${isCurrentStep ? '#91d5ff' : isCompleted ? '#b7eb8f' : '#e8e8e8'}`,
+                        borderRadius: isExpanded ? '6px 6px 0 0' : 6,
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                    >
+                      {/* 상태 아이콘 */}
+                      <div
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: '50%',
                           display: 'flex',
-                          marginBottom: index === data.steps.length - 1 ? 0 : '16px',
-                          position: 'relative'
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: isCompleted ? '#52c41a' : isCurrentStep ? '#1890ff' : '#d9d9d9',
+                          color: 'white',
+                          fontSize: 11,
+                          marginRight: 10,
+                          flexShrink: 0,
                         }}
                       >
-                        {/* 연결선 */}
-                        {index < data.steps.length - 1 && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              left: '11px',
-                              top: '24px',
-                              width: '2px',
-                              height: '16px',
-                              backgroundColor: isCompleted ? '#096dd9' : '#d9d9d9',
-                              zIndex: 1
-                            }}
-                          />
-                        )}
-                        {/* 아이콘 영역 */}
-                        <div
-                          style={{
-                            width: '24px',
-                            height: '24px',
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backgroundColor: 
-                              isCompleted ? '#096dd9' :
-                              isCurrentStep ? '#1890ff' : '#d9d9d9',
-                            color: 'white',
-                            fontSize: '12px',
-                            marginRight: '12px',
-                            flexShrink: 0,
-                            zIndex: 2,
-                            position: 'relative'
-                          }}
-                        >
-                          {isCompleted ? <CheckCircleOutlined style={{ fontSize: '14px' }} /> :
-                           isCurrentStep ? <LoadingOutlined style={{ fontSize: '14px' }} /> :
-                           <span style={{ fontSize: '10px', fontWeight: 'bold' }}>{step.seq}</span>}
-                        </div>
-                        {/* 내용 영역 */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 6,
-                            backgroundColor: isCurrentStep ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
-                            padding: isCurrentStep ? '4px 6px' : '2px 0',
-                            borderRadius: isCurrentStep ? '4px' : '0',
-                            margin: isCurrentStep ? '-2px -6px' : '0',
-                            maxWidth: '100%',
-                            overflow: 'hidden'
-                          }}>
-                            <div style={{ flexShrink: 0 }}>
-                              {getStepIcon(step.type)}
-                            </div>
-                            <span style={{ 
-                              fontWeight: isCurrentStep ? 600 : 400,
+                        {isCompleted ? <CheckCircleOutlined /> :
+                         isCurrentStep ? <LoadingOutlined /> :
+                         <span style={{ fontSize: 10 }}>{step.seq + 1}</span>}
+                      </div>
+                      
+                      {/* 스텝 정보 */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 6,
+                          marginBottom: 2
+                        }}>
+                          {getStepIcon(step.type)}
+                          <Text 
+                            strong={isCurrentStep}
+                            style={{ 
+                              fontSize: 12,
                               color: isCurrentStep ? '#1890ff' : 'inherit',
-                              fontSize: '13px',
-                              lineHeight: '1.2',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
-                              flex: 1
-                            }}>
-                              {step.seq}. {summary}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                            <Tag size="small" style={{ fontSize: '10px', lineHeight: '14px', padding: '0 4px' }} color={
-                              step.status === 'DONE' ? 'blue' :
-                              step.status === 'RUNNING' ? 'green' :
+                            }}
+                          >
+                            {getStepSummary(step)}
+                          </Text>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Tag 
+                            style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', margin: 0 }} 
+                            color={
+                              step.status === 'DONE' ? 'green' :
+                              step.status === 'RUNNING' ? 'blue' :
                               step.status === 'PAUSED' ? 'orange' :
                               step.status === 'FAILED' ? 'red' : 'default'
-                            }>
-                              {step.status}
-                            </Tag>
-                            <span style={{ marginLeft: 4, fontSize: '10px' }}>{step.type}</span>
-                          </div>
+                            }
+                          >
+                            {step.status}
+                          </Tag>
+                          <Text type="secondary" style={{ fontSize: 10 }}>{step.type}</Text>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      
+                      {/* 확장 아이콘 */}
+                      <div style={{ marginLeft: 8, color: '#999' }}>
+                        {isExpanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+                      </div>
+                    </div>
+                    
+                    {/* 스텝 상세 (확장 시) */}
+                    {isExpanded && (
+                      <div 
+                        style={{ 
+                          padding: 10,
+                          background: '#1a1a2e',
+                          borderRadius: '0 0 6px 6px',
+                          border: '1px solid #333',
+                          borderTop: 'none',
+                        }}
+                      >
+                        <Text style={{ fontSize: 10, color: '#888', display: 'block', marginBottom: 4 }}>
+                          Payload:
+                        </Text>
+                        <pre style={{ 
+                          margin: 0, 
+                          color: '#a9b7c6', 
+                          fontSize: 11, 
+                          lineHeight: 1.5,
+                          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-all',
+                        }}>
+                          {getStepDetailPayload(step)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* 제어 버튼 */}
@@ -926,14 +933,13 @@ export default function AMRStatus() {
             </div>
           </>
         ) : (
-          // 태스크 데이터가 없는 경우
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Empty description="현재 Task 없음" size="small" />
+            <Empty description="현재 태스크 없음" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           </div>
         )}
       </Card>
     );
-  }, [passwordConfirm]); // passwordConfirm 의존성 추가
+  });
 
   // ──────────────────────────────────────────────────────────────
   // 메인 렌더

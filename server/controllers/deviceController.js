@@ -29,6 +29,7 @@ const CONVEYOR_FIELDS = [
   'input_done_id',
   'product_no',
   'amr_pos',
+  'mani_pos',
 ];
 
 function normalizeText(value) {
