@@ -288,15 +288,70 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
     }
     
     if (diOk === true) {
-      await setRobotDI(
-        fresh.ip,            // 로봇 IP
-        0,     // DO ID (필요 시 다른 DO로 변경) DI 11 => 0 Virtual ID
-        false,               // 상태
-        logLabel
-      );
-      return "success";
+      console.log(`${logLabel}: DI${MANI_WORK_OK_DI}=1 감지 → false로 재설정 중...`);
+      try {
+        await setRobotDI(
+          fresh.ip,
+          MANI_WORK_OK_DI,  // DI 11을 false로 설정
+          false,
+          logLabel
+        );
+        // DI가 false로 변경되는 것을 확인
+        let resetConfirmed = false;
+        const resetStartTime = Date.now();
+        const resetTimeout = 5000; // 5초 타임아웃
+        while (Date.now() - resetStartTime <= resetTimeout) {
+          await delay(200);
+          const checkRobot = await Robot.findByPk(robotId);
+          const diOkAfterReset = getRobotDiStatus(checkRobot, MANI_WORK_OK_DI);
+          if (diOkAfterReset === false) {
+            resetConfirmed = true;
+            console.log(`${logLabel}: DI${MANI_WORK_OK_DI} false로 재설정 확인됨`);
+            break;
+          }
+        }
+        if (resetConfirmed) {
+          return "success";
+        } else {
+          console.warn(`${logLabel}: DI${MANI_WORK_OK_DI} false 재설정 확인 실패 (타임아웃), 계속 진행`);
+          return "success"; // 타임아웃이어도 성공으로 처리
+        }
+      } catch (err) {
+        console.error(`${logLabel}: DI${MANI_WORK_OK_DI} 재설정 실패:`, err.message);
+        return "success"; // 재설정 실패해도 성공으로 처리
+      }
     }
-    if (diErr === true) return "error";
+    if (diErr === true) {
+      console.log(`${logLabel}: DI${MANI_WORK_ERR_DI}=1 감지 → false로 재설정 후 에러 처리`);
+      try {
+        await setRobotDI(
+          fresh.ip,
+          MANI_WORK_ERR_DI,  // DI 12를 false로 설정
+          false,
+          logLabel
+        );
+        // DI 12가 false로 변경되는 것을 확인
+        let resetConfirmed = false;
+        const resetStartTime = Date.now();
+        const resetTimeout = 5000;
+        while (Date.now() - resetStartTime <= resetTimeout) {
+          await delay(200);
+          const checkRobot = await Robot.findByPk(robotId);
+          const diErrAfterReset = getRobotDiStatus(checkRobot, MANI_WORK_ERR_DI);
+          if (diErrAfterReset === false) {
+            resetConfirmed = true;
+            console.log(`${logLabel}: DI${MANI_WORK_ERR_DI} false로 재설정 확인됨`);
+            break;
+          }
+        }
+        if (!resetConfirmed) {
+          console.warn(`${logLabel}: DI${MANI_WORK_ERR_DI} false 재설정 확인 실패 (타임아웃)`);
+        }
+      } catch (err) {
+        console.error(`${logLabel}: DI${MANI_WORK_ERR_DI} 재설정 실패:`, err.message);
+      }
+      return "error";
+    }
     if (taskId) {
       const t = await Task.findByPk(taskId);
       if (["PAUSED", "CANCELED", "FAILED"].includes(t?.status)) return "canceled";
