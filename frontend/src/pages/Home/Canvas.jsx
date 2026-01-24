@@ -340,6 +340,11 @@ export default function Canvas() {
       return { color: token.colorPrimary, shouldPulse: true };
     }
     
+    // 작업 중 (할당된 태스크 있음)
+    if (status === '작업 중') {
+      return { color: '#13c2c2', shouldPulse: true };
+    }
+    
     return { shouldPulse: false };
   }, [getAmrStatus, robotTasks, token.colorPrimary]);
 

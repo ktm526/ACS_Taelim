@@ -329,6 +329,26 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
   return rows;
 }
 
+/** 아웃스토커 공지그 제품별 가용 수량 합산 (jig_state=1, model_no 기준) */
+function getOutstockerProductCounts(outstockerSides) {
+  const counts = new Map();
+  for (const side of OUT_SIDES) {
+    const sideData = outstockerSides?.[side] || {};
+    const amrPos = normalizeText(sideData.amr_pos);
+    if (!amrPos) continue;
+    for (const row of OUT_ROWS) {
+      const rowData = sideData.rows?.[row] || {};
+      const jigState = resolvePlcValue(rowData.jig_state_id);
+      const modelNo = resolvePlcValue(rowData.model_no_id);
+      if (jigState === 1 && modelNo !== null && !Number.isNaN(Number(modelNo))) {
+        const key = String(Number(modelNo));
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
 async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
   const conveyorIndex = conveyorItem.index;
   const amrPos = normalizeText(conveyorItem.amr_pos);
@@ -460,72 +480,61 @@ async function logTaskCreateStatus(config) {
   if (now - lastStatusLogTime < STATUS_LOG_INTERVAL_MS) return;
   lastStatusLogTime = now;
 
-  const statusLines = [];
-  statusLines.push("══════════════════════════════════════════");
-  statusLines.push("[TaskCreate] 작업 생성 조건 상태 (5초 주기)");
+  const pad = (s, n) => String(s).padEnd(n, " ");
+  const sep = "  ";
+  const lines = [];
+  lines.push("");
+  lines.push("┌─────────────────────────────────────────────────────────────");
+  lines.push("│ [TaskCreate] 시나리오 3번 (컨베이어 → 아웃스토커) 조건 상태");
+  lines.push("├─────────────────────────────────────────────────────────────");
 
-  // 인스토커 L/R 상태
-  SIDES.forEach((side) => {
-    const workId = normalizeText(config.sideSignals?.[side]?.work_available_id);
-    if (workId) {
-      const value = isSignalOn(workId) ? 1 : 0;
-      statusLines.push(`  인스토커 ${side}: 작업가능(${workId})=${value} ${value === 1 ? "✓" : ""}`);
-    } else {
-      statusLines.push(`  인스토커 ${side}: 작업가능 ID 미설정`);
-    }
-  });
-
-  // 컨베이어 상태
-  (config.conveyors || []).forEach((item) => {
-    const index = item.index;
-    const qty4Id = normalizeText(item.input_qty_4_id);
-    const qty1Id = normalizeText(item.input_qty_1_id);
-    const productNo = item.product_no || "미설정";
-    const qty4Value = qty4Id && isSignalOn(qty4Id) ? 1 : 0;
-    const qty1Value = qty1Id && isSignalOn(qty1Id) ? 1 : 0;
-    const qty = qty4Value ? 4 : qty1Value ? 1 : 0;
-    statusLines.push(`  컨베이어 ${index}: 투입수량1(${qty1Id || "미설정"})=${qty1Value}, 투입수량4(${qty4Id || "미설정"})=${qty4Value}, 제품번호=${productNo} ${qty > 0 ? `✓ (qty=${qty})` : ""}`);
-  });
-
-  // 3번 시나리오 (컨베이어→아웃스토커) 조건
-  statusLines.push("  ── 3번 시나리오 (컨베이어→아웃스토커) ──");
   const robotM500 = await Robot.findOne({ where: { name: "M500-S-02" } });
   const existingM500Task = robotM500
     ? await Task.findOne({
         where: { robot_id: robotM500.id, status: ["PENDING", "RUNNING", "PAUSED"] },
       })
     : null;
-  statusLines.push(
-    `  M500-S-02: ${robotM500 ? `존재(ID:${robotM500.id}) 상태=${robotM500.status}` : "미등록"} ${existingM500Task ? `기존태스크#${existingM500Task.id}(${existingM500Task.status})` : ""}`
-  );
+
+  lines.push("│ ■ AMR (M500-S-02)");
+  if (robotM500) {
+    lines.push(`│   ${sep}상태       ${pad(robotM500.status ?? "-", 10)}│`);
+    lines.push(`│   ${sep}기존태스크 ${pad(existingM500Task ? `Task#${existingM500Task.id} (${existingM500Task.status})` : "없음", 28)}│`);
+  } else {
+    lines.push(`│   ${sep}미등록`);
+  }
+  lines.push("├─────────────────────────────────────────────────────────────");
+  lines.push("│ ■ 컨베이어 (투입수량 · 제품번호)");
+
   (config.conveyors || []).forEach((item) => {
-    const index = item.index;
-    const amrPos = normalizeText(item.amr_pos);
-    const rawProductNo = item.product_no;
-    const productNo =
-      rawProductNo != null && String(rawProductNo).trim() !== ""
-        ? Number(rawProductNo)
-        : null;
+    const idx = item.index;
     const qty4Id = normalizeText(item.input_qty_4_id);
     const qty1Id = normalizeText(item.input_qty_1_id);
-    const qty = qty4Id && isSignalOn(qty4Id) ? 4 : qty1Id && isSignalOn(qty1Id) ? 1 : 0;
-    if (qty === 0) {
-      statusLines.push(`  컨베이어${index}→아웃스토커: 투입수량 신호 없음 (스킵)`);
-      return;
-    }
-    const rows = getAvailableOutstockerRows(config.outstockerSides, productNo, qty);
-    const okAmr = !!amrPos;
-    const okProduct = productNo !== null && !Number.isNaN(productNo);
-    const okRows = rows.length >= qty;
-    const okRobot = !!robotM500 && !existingM500Task;
-    const allOk = okAmr && okProduct && okRows && okRobot;
-    statusLines.push(
-      `  컨베이어${index}: amr_pos=${amrPos || "미설정"}${okAmr ? "✓" : "✗"}, 제품번호=${productNo ?? "미설정"}${okProduct ? "✓" : "✗"}, 필요공지그=${qty}개 가용=${rows.length}개${okRows ? "✓" : "✗"} ${allOk ? "→ 태스크발행가능" : ""}`
-    );
+    const qty4On = qty4Id && isSignalOn(qty4Id);
+    const qty1On = qty1Id && isSignalOn(qty1Id);
+    const qty = qty4On ? 4 : qty1On ? 1 : 0;
+    const productNo = item.product_no != null && String(item.product_no).trim() !== "" ? String(item.product_no) : "-";
+    const amrPos = normalizeText(item.amr_pos) || "-";
+    lines.push(`│   컨베이어 ${idx}  투입수량1=${qty1On ? "1" : "0"}  투입수량4=${qty4On ? "1" : "0"}  → 요청수량 ${qty}개`);
+    lines.push(`│            제품번호 ${pad(productNo, 6)}  AMR pos ${amrPos}`);
   });
 
-  statusLines.push("══════════════════════════════════════════");
-  console.log(statusLines.join("\n"));
+  const outCounts = getOutstockerProductCounts(config.outstockerSides);
+  const sortedProducts = [...outCounts.keys()].sort((a, b) => Number(a) - Number(b));
+
+  lines.push("├─────────────────────────────────────────────────────────────");
+  lines.push("│ ■ 아웃스토커 공지그 (제품별 가용 수량 합산, jig_state=1)");
+  if (sortedProducts.length === 0) {
+    lines.push("│   (가용 공지그 없음)");
+  } else {
+    sortedProducts.forEach((key) => {
+      const cnt = outCounts.get(key);
+      lines.push(`│   제품 ${pad(key, 4)}  ${String(cnt).padStart(3)}개`);
+    });
+  }
+
+  lines.push("└─────────────────────────────────────────────────────────────");
+  lines.push("");
+  console.log(lines.join("\n"));
 }
 
 async function checkSide(side, config, activeTasks) {

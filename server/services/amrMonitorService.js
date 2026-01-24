@@ -3,6 +3,7 @@
 const net = require('net');
 const { Op } = require('sequelize');
 const Robot = require('../models/Robot');
+const { Task } = require('../models');
 //const { //logConnChange } = require('./connectionLogger');
 
 // AMR Push Monitoring Service
@@ -102,6 +103,13 @@ function handlePush(sock, ip) {
                 statusStr = '충전';
             } else if (tsRaw === 2) {
                 statusStr = '이동';
+                const robotByIp = await Robot.findOne({ where: { ip } });
+                if (robotByIp) {
+                    const assigned = await Task.findOne({
+                        where: { robot_id: robotByIp.id, status: ['PENDING', 'RUNNING', 'PAUSED'] },
+                    });
+                    if (assigned) statusStr = '작업 중';
+                }
             } else if ([0, 1, 4].includes(tsRaw)) {
                 statusStr = '대기';
             } else {

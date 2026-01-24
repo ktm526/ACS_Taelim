@@ -54,6 +54,7 @@ const API = import.meta.env.VITE_CORE_BASE_URL;
 // 상태 문자열 ↔ Badge.status, Tag.color 매핑
 const STATUS_BADGE = {
   이동: "processing",
+  "작업 중": "processing",
   대기: "success",
   충전: "warning",
   수동: "default",
@@ -64,6 +65,7 @@ const STATUS_BADGE = {
 };
 const STATUS_TAG_COLOR = {
   이동: "blue",
+  "작업 중": "cyan",
   대기: "green",
   충전: "orange",
   수동: "purple",
@@ -959,6 +961,9 @@ export default function AMRStatus() {
               switch(status) {
                 case '이동':
                   borderColor = token.colorInfo;
+                  break;
+                case '작업 중':
+                  borderColor = '#13c2c2';
                   break;
                 case '대기':
                   borderColor = token.colorSuccess;
