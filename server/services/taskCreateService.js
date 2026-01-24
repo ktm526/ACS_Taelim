@@ -335,8 +335,12 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     return;
   }
 
-  const productNo = resolvePlcValue(conveyorItem.product_no_id);
-  if (productNo === null) {
+  const rawProductNo = conveyorItem.product_no;
+  const productNo =
+    rawProductNo != null && String(rawProductNo).trim() !== ""
+      ? Number(rawProductNo)
+      : null;
+  if (productNo === null || Number.isNaN(productNo)) {
     console.warn(`[TaskCreate] conveyor${conveyorIndex}: 제품 번호 없음`);
     return;
   }

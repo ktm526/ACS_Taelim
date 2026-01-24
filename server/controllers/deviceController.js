@@ -27,7 +27,7 @@ const CONVEYOR_FIELDS = [
   'stop_request_id',
   'input_in_progress_id',
   'input_done_id',
-  'product_no_id',
+  'product_no',
   'amr_pos',
 ];
 

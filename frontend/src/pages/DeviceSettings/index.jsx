@@ -25,7 +25,6 @@ const CONVEYOR_SIGNAL_FIELDS = [
   { key: "stop_request_id", label: "정지요청" },
   { key: "input_in_progress_id", label: "투입중" },
   { key: "input_done_id", label: "투입완료" },
-  { key: "product_no_id", label: "제품 번호" },
 ];
 const SIGNALS = [
   { key: "input_ready_id", label: "투입 가능" },
@@ -105,7 +104,7 @@ function createDefaultOutStocker() {
 
 function createDefaultConveyors() {
   return CONVEYOR_INDEXES.map((index) => {
-    const item = { index, amr_pos: null };
+    const item = { index, amr_pos: null, product_no: null };
     CONVEYOR_SIGNAL_FIELDS.forEach((field) => {
       item[field.key] = null;
     });
@@ -621,6 +620,12 @@ export default function DeviceSettings() {
           item[field.key] ?? "",
         ]);
       });
+      rows.push([
+        "conveyor",
+        String(item.index),
+        "product_no",
+        item.product_no ?? "",
+      ]);
     });
     return rows;
   };
@@ -1368,6 +1373,16 @@ export default function DeviceSettings() {
                     </React.Fragment>
                   );
                 })}
+                <span>제품 번호</span>
+                <Input
+                  size="small"
+                  value={item.product_no ?? ""}
+                  onChange={(e) =>
+                    handleConveyorChange(item.index, "product_no", e.target.value)
+                  }
+                  placeholder="제품 번호"
+                />
+                <Tag color="default">-</Tag>
               </div>
             </div>
           ))}

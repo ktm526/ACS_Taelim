@@ -142,8 +142,7 @@ async function collectIds({ side = "ALL" } = {}) {
       item?.input_qty_4_id,
       item?.stop_request_id,
       item?.input_in_progress_id,
-      item?.input_done_id,
-      item?.product_no_id
+      item?.input_done_id
     );
   });
 
