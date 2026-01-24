@@ -588,7 +588,7 @@ async function progressTask(task, robot) {
   }
 }
 
-async function handleRobot(robot, tasks) {
+async function handleRobot(robot, tasks, hasGlobalRunningTask) {
   if (robotLocks.get(robot.id)) return;
   robotLocks.set(robot.id, true);
   try {
@@ -601,6 +601,15 @@ async function handleRobot(robot, tasks) {
     }
 
     if (pendingTask) {
+      // 다른 로봇이라도 RUNNING 태스크가 있으면 PENDING 태스크 시작하지 않음
+      if (hasGlobalRunningTask) {
+        // 10초마다만 로그 출력 (너무 자주 나오면 주석 처리)
+        if (tickCount % 10 === 1) {
+          console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (다른 로봇의 태스크 실행 중)`);
+        }
+        return;
+      }
+      
       // '대기' 또는 '작업 중' 상태일 때 태스크 시작 허용
       // (amrMonitorService에서 PENDING 태스크가 있으면 '작업 중'으로 변경하므로)
       if (robot.status === "대기" || robot.status === "작업 중") {
@@ -630,10 +639,13 @@ async function tick() {
     order: [["id", "ASC"]],
   });
 
+  // 전체 RUNNING 태스크가 있는지 확인 (어떤 로봇이든)
+  const hasGlobalRunningTask = tasks.some((t) => t.status === "RUNNING");
+
   // 10초마다 상태 요약 출력
   if (tickCount % 10 === 1) {
     const taskSummary = tasks.length ? tasks.map(t => `#${t.id}(${t.status})`).join(', ') : '없음';
-    console.log(`[Executor] tick#${tickCount}: 로봇 ${robots.length}대, 활성 태스크: ${taskSummary}`);
+    console.log(`[Executor] tick#${tickCount}: 로봇 ${robots.length}대, 활성 태스크: ${taskSummary}, 글로벌 RUNNING: ${hasGlobalRunningTask}`);
   }
 
   const tasksByRobot = new Map();
@@ -651,7 +663,7 @@ async function tick() {
     }
     const list = tasksByRobot.get(robot.id) || [];
     if (!list.length) continue;
-    await handleRobot(robot, list);
+    await handleRobot(robot, list, hasGlobalRunningTask);
   }
 }
 
