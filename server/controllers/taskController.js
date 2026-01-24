@@ -35,6 +35,7 @@ console.log('[TaskCleanup] 자동 삭제 스케줄러 시작 (30초 경과 DONE/
 /* POST /api/tasks  ─ Task + Steps 생성 */
 exports.create = async (req, res) => {
   const { robot_id, steps = [] } = req.body;
+  console.log(`[TaskController] 태스크 생성 요청: robot_id=${robot_id}, steps=${steps.length}개`, steps.map((s, i) => `[${i}] ${s.type}`).join(', '));
 
   const task = await Task.create(
     {
@@ -47,6 +48,9 @@ exports.create = async (req, res) => {
     },
     { include: [{ model: TaskStep, as: 'steps' }] },
   );
+
+  const createdSteps = await TaskStep.findAll({ where: { task_id: task.id } });
+  console.log(`[TaskController] 태스크 생성 완료: Task#${task.id}, 실제 생성된 스텝=${createdSteps.length}개`);
 
   res.status(201).json({ id: task.id });
 };

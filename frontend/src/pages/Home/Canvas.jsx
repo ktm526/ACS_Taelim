@@ -1040,41 +1040,44 @@ export default function Canvas() {
               message.warning("로봇을 선택하세요.");
               return;
             }
-            const steps = taskSteps.map((step) => {
-              if (step.type === "NAV") {
-                return { type: "NAV", payload: { dest: step.dest || "" } };
-              }
-              if (step.type === "MANI_WORK") {
-                return {
-                  type: "MANI_WORK",
-                  payload: {
-                    CMD_ID: Number(step.cmdId) || 0,
-                    CMD_FROM: Number(step.cmdFrom) || 0,
-                    CMD_TO: Number(step.cmdTo) || 0,
-                    VISION_CHECK: Number(step.visionCheck) === 1 ? 1 : 0,
-                  },
-                };
-              }
-              if (step.type === "PLC_WRITE") {
-                return {
-                  type: "PLC_WRITE",
-                  payload: {
-                    PLC_BIT: step.plcId || "",
-                    PLC_DATA: Number(step.plcData) || 0,
-                  },
-                };
-              }
-              if (step.type === "PLC_READ") {
-                return {
-                  type: "PLC_READ",
-                  payload: {
-                    PLC_ID: step.plcId || "",
-                    EXPECTED: Number(step.plcExpected) || 0,
-                  },
-                };
-              }
-              return { type: step.type, payload: {} };
-            });
+            const steps = taskSteps
+              .filter((step) => step && step.type) // 빈 스텝 필터링
+              .map((step) => {
+                if (step.type === "NAV") {
+                  return { type: "NAV", payload: { dest: step.dest || "" } };
+                }
+                if (step.type === "MANI_WORK") {
+                  return {
+                    type: "MANI_WORK",
+                    payload: {
+                      CMD_ID: Number(step.cmdId) || 0,
+                      CMD_FROM: Number(step.cmdFrom) || 0,
+                      CMD_TO: Number(step.cmdTo) || 0,
+                      VISION_CHECK: Number(step.visionCheck) === 1 ? 1 : 0,
+                    },
+                  };
+                }
+                if (step.type === "PLC_WRITE") {
+                  return {
+                    type: "PLC_WRITE",
+                    payload: {
+                      PLC_BIT: step.plcId || "",
+                      PLC_DATA: Number(step.plcData) || 0,
+                    },
+                  };
+                }
+                if (step.type === "PLC_READ") {
+                  return {
+                    type: "PLC_READ",
+                    payload: {
+                      PLC_ID: step.plcId || "",
+                      EXPECTED: Number(step.plcExpected) || 0,
+                    },
+                  };
+                }
+                return { type: step.type, payload: {} };
+              });
+            console.log(`[TaskCreate] 프론트엔드: taskSteps=${taskSteps.length}개, 변환된 steps=${steps.length}개`, steps);
             setTaskSubmitting(true);
             await fetch(`${CORE}/api/tasks`, {
               method: "POST",
