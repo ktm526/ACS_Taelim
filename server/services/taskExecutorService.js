@@ -18,7 +18,7 @@ const ROBOT_DO_API = Number.parseInt(process.env.ROBOT_DO_API || "6001", 10);
 const ROBOT_DI_API = Number.parseInt(process.env.ROBOT_DI_API || "6020", 10); // 
 
 const MANI_WORK_TIMEOUT_MS = Number.parseInt(
-  process.env.MANI_WORK_TIMEOUT_MS || "300000",
+  process.env.MANI_WORK_TIMEOUT_MS || "3000000",
   10
 );
 const MANI_WORK_DO_ID = Number.parseInt(
