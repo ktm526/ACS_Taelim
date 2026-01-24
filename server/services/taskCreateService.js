@@ -255,6 +255,7 @@ async function createTaskForSide(side, config, activeTasks) {
         CMD_ID: slot.index,
         CMD_FROM: slot.mani_pos,
         CMD_TO: slot.index,
+        VISION_CHECK: 1,
       }),
     });
   });
@@ -274,6 +275,7 @@ async function createTaskForSide(side, config, activeTasks) {
         CMD_ID: target.slotIndex,
         CMD_FROM: target.slotIndex,
         CMD_TO: target.grinder_mani_pos,
+        VISION_CHECK: 0,
       }),
     });
   });
@@ -360,7 +362,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
   }
 
   const steps = [];
-  // (AMR 이동 - MANI WORK) * qty
+  // (AMR 이동 - MANI WORK) * qty  (아웃스토커 픽업)
   rows.slice(0, qty).forEach((rowInfo, idx) => {
     steps.push({
       type: "NAV",
@@ -372,6 +374,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
         CMD_ID: idx + 1,
         CMD_FROM: rowInfo.row,
         CMD_TO: idx + 1,
+        VISION_CHECK: 1,
       }),
     });
   });
@@ -406,6 +409,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
         CMD_ID: i + 1,
         CMD_FROM: i + 1,
         CMD_TO: conveyorIndex,
+        VISION_CHECK: 0,
       }),
     });
     steps.push({
