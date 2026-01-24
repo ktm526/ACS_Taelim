@@ -238,6 +238,18 @@ async function createTaskForSide(side, config, activeTasks) {
   }
   //console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
 
+  // Robot의 슬롯 정보 파싱 (slot_no 목록)
+  const robotSlots = safeParse(robot.slots, []);
+  const slotNos = robotSlots
+    .map((s) => (typeof s === "object" ? s.slot_no : s))
+    .filter((n) => n != null)
+    .sort((a, b) => a - b);
+  
+  if (slotNos.length < slots.length) {
+    console.warn(`[TaskCreate] ${side}: AMR 슬롯 부족 (필요: ${slots.length}, 보유: ${slotNos.length})`);
+    return;
+  }
+
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
@@ -250,25 +262,28 @@ async function createTaskForSide(side, config, activeTasks) {
   steps.push({ type: "NAV", payload: JSON.stringify({ dest: pickupStation }) });
 
   // 인스토커 -> AMR 적재 (1칸 ~ 6칸 순서)
-  // CMD_ID는 항상 1, CMD_FROM=인스토커 mani_pos, CMD_TO=AMR 슬롯
-  slots.forEach((slot) => {
+  // CMD_ID는 항상 1, CMD_FROM=인스토커 mani_pos, CMD_TO=AMR 슬롯(slot_no)
+  slots.forEach((slot, idx) => {
+    const amrSlotNo = slotNos[idx]; // Robot에 설정된 slot_no 사용
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1, // 항상 1
         CMD_FROM: Number(slot.mani_pos), // 인스토커 mani_pos
-        CMD_TO: slot.index, // AMR 슬롯
+        CMD_TO: amrSlotNo, // AMR slot_no
         VISION_CHECK: 1, // 인스토커에서 픽업할 때는 1
       }),
     });
   });
 
   // AMR -> 연마기 투입 (나중에 넣은 제품부터, 6개 순서쌍)
-  // CMD_ID는 항상 1, CMD_FROM=AMR 슬롯, CMD_TO=연마기 mani_pos
+  // CMD_ID는 항상 1, CMD_FROM=AMR 슬롯(slot_no), CMD_TO=연마기 mani_pos
+  // slotTargets의 slotIndex(1~6)를 slotNos로 매핑
   const slotTargetsDesc = [...slotTargets].sort(
     (a, b) => b.slotIndex - a.slotIndex
   );
   slotTargetsDesc.forEach((target) => {
+    const amrSlotNo = slotNos[target.slotIndex - 1]; // slotIndex는 1부터 시작
     steps.push({
       type: "NAV",
       payload: JSON.stringify({ dest: target.grinder_station }),
@@ -277,7 +292,7 @@ async function createTaskForSide(side, config, activeTasks) {
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1, // 항상 1
-        CMD_FROM: target.slotIndex, // AMR 슬롯
+        CMD_FROM: amrSlotNo, // AMR slot_no
         CMD_TO: Number(target.grinder_mani_pos), // 연마기 mani_pos
         VISION_CHECK: 0, // 연마기에 놓을 때는 0
       }),
@@ -427,6 +442,18 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     return;
   }
 
+  // Robot의 슬롯 정보 파싱 (slot_no 목록)
+  const robotSlots = safeParse(robot.slots, []);
+  const slotNos = robotSlots
+    .map((s) => (typeof s === "object" ? s.slot_no : s))
+    .filter((n) => n != null)
+    .sort((a, b) => a - b);
+  
+  if (slotNos.length < qty) {
+    console.warn(`[TaskCreate] conveyor${conveyorIndex}: AMR 슬롯 부족 (필요: ${qty}, 보유: ${slotNos.length})`);
+    return;
+  }
+
   // 컨베이어 mani_pos
   const conveyorManiPos = normalizeText(conveyorItem.mani_pos);
   if (!conveyorManiPos) {
@@ -436,11 +463,11 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
 
   const steps = [];
   // (AMR 이동 - MANI WORK) * qty  (아웃스토커 픽업)
-  // AMR 슬롯은 1부터 순서대로 사용
+  // AMR 슬롯은 Robot에 설정된 slot_no 사용
   // 참고: getAvailableOutstockerRows에서 mani_pos가 있는 row만 반환함
   for (let idx = 0; idx < rows.length && idx < qty; idx++) {
     const rowInfo = rows[idx];
-    const amrSlot = idx + 1; // AMR 슬롯 1, 2, 3, ...
+    const amrSlotNo = slotNos[idx]; // Robot에 설정된 slot_no 사용
     
     steps.push({
       type: "NAV",
@@ -451,7 +478,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
       payload: JSON.stringify({
         CMD_ID: 1, // 항상 1
         CMD_FROM: Number(rowInfo.mani_pos), // 아웃스토커 mani_pos
-        CMD_TO: amrSlot, // AMR 슬롯
+        CMD_TO: amrSlotNo, // AMR slot_no
         VISION_CHECK: 1, // 아웃스토커에서 픽업할 때는 1
       }),
     });
@@ -465,7 +492,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
 
   // (컨베이어 시퀀스) * qty
   for (let i = 0; i < qty; i += 1) {
-    const amrSlot = i + 1; // AMR 슬롯 1, 2, 3, ...
+    const amrSlotNo = slotNos[i]; // Robot에 설정된 slot_no 사용
     
     steps.push({
       type: "PLC_WRITE",
@@ -487,7 +514,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1, // 항상 1
-        CMD_FROM: amrSlot, // AMR 슬롯
+        CMD_FROM: amrSlotNo, // AMR slot_no
         CMD_TO: Number(conveyorManiPos), // 컨베이어 mani_pos
         VISION_CHECK: 0, // 컨베이어에 놓을 때는 0
       }),
