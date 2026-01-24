@@ -103,17 +103,19 @@ function handlePush(sock, ip) {
                 statusStr = '충전';
             } else if (tsRaw === 2) {
                 statusStr = '이동';
-                const robotByIp = await Robot.findOne({ where: { ip } });
-                if (robotByIp) {
-                    const assigned = await Task.findOne({
-                        where: { robot_id: robotByIp.id, status: ['PENDING', 'RUNNING', 'PAUSED'] },
-                    });
-                    if (assigned) statusStr = '작업 중';
-                }
             } else if ([0, 1, 4].includes(tsRaw)) {
                 statusStr = '대기';
             } else {
                 statusStr = 'unknown';
+            }
+            if (statusStr === '이동' || statusStr === '대기') {
+                const robot = await Robot.findOne({ where: { name } });
+                if (robot) {
+                    const assigned = await Task.findOne({
+                        where: { robot_id: robot.id, status: ['PENDING', 'RUNNING', 'PAUSED'] },
+                    });
+                    if (assigned) statusStr = '작업 중';
+                }
             }
 
             // extract other fields...
