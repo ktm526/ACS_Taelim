@@ -487,6 +487,43 @@ async function logTaskCreateStatus(config) {
     statusLines.push(`  컨베이어 ${index}: 투입수량1(${qty1Id || "미설정"})=${qty1Value}, 투입수량4(${qty4Id || "미설정"})=${qty4Value}, 제품번호=${productNo} ${qty > 0 ? `✓ (qty=${qty})` : ""}`);
   });
 
+  // 3번 시나리오 (컨베이어→아웃스토커) 조건
+  statusLines.push("  ── 3번 시나리오 (컨베이어→아웃스토커) ──");
+  const robotM500 = await Robot.findOne({ where: { name: "M500-S-02" } });
+  const existingM500Task = robotM500
+    ? await Task.findOne({
+        where: { robot_id: robotM500.id, status: ["PENDING", "RUNNING", "PAUSED"] },
+      })
+    : null;
+  statusLines.push(
+    `  M500-S-02: ${robotM500 ? `존재(ID:${robotM500.id}) 상태=${robotM500.status}` : "미등록"} ${existingM500Task ? `기존태스크#${existingM500Task.id}(${existingM500Task.status})` : ""}`
+  );
+  (config.conveyors || []).forEach((item) => {
+    const index = item.index;
+    const amrPos = normalizeText(item.amr_pos);
+    const rawProductNo = item.product_no;
+    const productNo =
+      rawProductNo != null && String(rawProductNo).trim() !== ""
+        ? Number(rawProductNo)
+        : null;
+    const qty4Id = normalizeText(item.input_qty_4_id);
+    const qty1Id = normalizeText(item.input_qty_1_id);
+    const qty = qty4Id && isSignalOn(qty4Id) ? 4 : qty1Id && isSignalOn(qty1Id) ? 1 : 0;
+    if (qty === 0) {
+      statusLines.push(`  컨베이어${index}→아웃스토커: 투입수량 신호 없음 (스킵)`);
+      return;
+    }
+    const rows = getAvailableOutstockerRows(config.outstockerSides, productNo, qty);
+    const okAmr = !!amrPos;
+    const okProduct = productNo !== null && !Number.isNaN(productNo);
+    const okRows = rows.length >= qty;
+    const okRobot = !!robotM500 && !existingM500Task;
+    const allOk = okAmr && okProduct && okRows && okRobot;
+    statusLines.push(
+      `  컨베이어${index}: amr_pos=${amrPos || "미설정"}${okAmr ? "✓" : "✗"}, 제품번호=${productNo ?? "미설정"}${okProduct ? "✓" : "✗"}, 필요공지그=${qty}개 가용=${rows.length}개${okRows ? "✓" : "✗"} ${allOk ? "→ 태스크발행가능" : ""}`
+    );
+  });
+
   statusLines.push("══════════════════════════════════════════");
   console.log(statusLines.join("\n"));
 }
