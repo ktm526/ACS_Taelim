@@ -98,6 +98,7 @@ function buildDefaultOutStocker() {
         load_ready_id: null,
         jig_state_id: null,
         model_no_id: null,
+        mani_pos: null,
       };
     }
     sides[side] = {
@@ -198,6 +199,7 @@ function normalizeOutStocker(input) {
         load_ready_id: normalizeText(sourceRow.load_ready_id),
         jig_state_id: normalizeText(sourceRow.jig_state_id),
         model_no_id: normalizeText(sourceRow.model_no_id),
+        mani_pos: normalizeText(sourceRow.mani_pos),
       };
     }
     base[side] = {

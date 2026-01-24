@@ -323,6 +323,10 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
       const jigState = resolvePlcValue(rowData.jig_state_id);
       const modelNo = resolvePlcValue(rowData.model_no_id);
       const maniPos = normalizeText(rowData.mani_pos);
+      
+      // mani_pos가 없으면 사용할 수 없으므로 스킵
+      if (!maniPos) continue;
+      
       if (jigState === 1 && modelNo !== null && Number(modelNo) === Number(productNo)) {
         rows.push({ side, row, amr_pos: amrPos, mani_pos: maniPos });
         if (rows.length >= qty) return rows;
@@ -402,6 +406,12 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     console.log(`[TaskCreate] conveyor${conveyorIndex}: 공지그 수량 부족 (${rows.length}/${qty})`);
     return;
   }
+  
+  // 디버깅: 사용할 아웃스토커 row 정보 출력
+  console.log(`[TaskCreate] conveyor${conveyorIndex}: 아웃스토커 row ${rows.length}개 선택됨`);
+  rows.forEach((r, i) => {
+    console.log(`  [${i+1}] ${r.side}-${r.row}: amr_pos=${r.amr_pos}, mani_pos=${r.mani_pos}`);
+  });
 
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
   if (!robot) {
@@ -427,14 +437,10 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
   const steps = [];
   // (AMR 이동 - MANI WORK) * qty  (아웃스토커 픽업)
   // AMR 슬롯은 1부터 순서대로 사용
-  rows.slice(0, qty).forEach((rowInfo, idx) => {
+  // 참고: getAvailableOutstockerRows에서 mani_pos가 있는 row만 반환함
+  for (let idx = 0; idx < rows.length && idx < qty; idx++) {
+    const rowInfo = rows[idx];
     const amrSlot = idx + 1; // AMR 슬롯 1, 2, 3, ...
-    const outstockerManiPos = rowInfo.mani_pos;
-    
-    if (!outstockerManiPos) {
-      console.warn(`[TaskCreate] 아웃스토커 ${rowInfo.side}-${rowInfo.row}: Mani Pos 없음`);
-      return;
-    }
     
     steps.push({
       type: "NAV",
@@ -444,12 +450,12 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1, // 항상 1
-        CMD_FROM: Number(outstockerManiPos), // 아웃스토커 mani_pos
+        CMD_FROM: Number(rowInfo.mani_pos), // 아웃스토커 mani_pos
         CMD_TO: amrSlot, // AMR 슬롯
         VISION_CHECK: 1, // 아웃스토커에서 픽업할 때는 1
       }),
     });
-  });
+  }
 
   // 컨베이어로 이동
   steps.push({
