@@ -15,6 +15,8 @@ const MANI_CMD_PORT = Number.parseInt(process.env.MANI_CMD_PORT || "19207", 10);
 const MANI_CMD_API = Number.parseInt(process.env.MANI_CMD_API || "4021", 10);
 const ROBOT_IO_PORT = Number.parseInt(process.env.ROBOT_IO_PORT || "19210", 10);
 const ROBOT_DO_API = Number.parseInt(process.env.ROBOT_DO_API || "6001", 10);
+const ROBOT_DI_API = Number.parseInt(process.env.ROBOT_DI_API || "6020", 10); // 
+
 const MANI_WORK_TIMEOUT_MS = Number.parseInt(
   process.env.MANI_WORK_TIMEOUT_MS || "300000",
   10
@@ -206,6 +208,14 @@ function setRobotDo(ip, doId, status, logLabel = "") {
   return sendTcpCommand(ip, ROBOT_IO_PORT, ROBOT_DO_API, payload, `${logLabel} DO${doId}=${status ? 1 : 0}`);
 }
 
+function setRobotDI(ip, diId, status, logLabel = "") {
+  const payload = {
+    id: Number(diId),
+    status: status === true || status === 1, // boolean 타입으로 전송
+  };
+  return sendTcpCommand(ip, ROBOT_IO_PORT, ROBOT_DI_API, payload, `${logLabel} DI${diId}=${status ? 1 : 0}`);
+}
+
 function sendManiCommand(ip, payload, logLabel = "") {
   // API 문서에 따른 형식:
   // {
@@ -218,6 +228,9 @@ function sendManiCommand(ip, payload, logLabel = "") {
     CMD_FROM: String(payload.CMD_FROM || "0"),
     CMD_TO: String(payload.CMD_TO || "0"),
     CMD_STOP: String(payload.CMD_STOP || "0"),
+    VISION_CHECK: String(
+    payload.vision_check === 1 ? 1 : 0
+),
   };
   const body = {
     type: "module",
@@ -274,7 +287,15 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
       console.log(`${logLabel}: [DI 폴링 ${elapsed}초] DI${MANI_WORK_OK_DI}=${diOk}, DI${MANI_WORK_ERR_DI}=${diErr}`);
     }
     
-    if (diOk === true) return "success";
+    if (diOk === true) {
+      await setRobotDI(
+        fresh.ip,            // 로봇 IP
+        0,     // DO ID (필요 시 다른 DO로 변경) DI 11 => 0 Virtual ID
+        false,               // 상태
+        logLabel
+      );
+      return "success";
+    }
     if (diErr === true) return "error";
     if (taskId) {
       const t = await Task.findByPk(taskId);
@@ -361,7 +382,9 @@ async function executeStep(step, robot) {
     const cmdId = payload.CMD_ID;
     const cmdFrom = payload.CMD_FROM;
     const cmdTo = payload.CMD_TO;
-    if (cmdId === undefined || cmdFrom === undefined || cmdTo === undefined) {
+    const vision_check = payload.VISION_CHECK;
+
+    if (cmdId === undefined || cmdFrom === undefined || cmdTo === undefined || vision_check == undefined) {
       console.error(`${stepLabel}: MANI_WORK payload 누락 (ID=${cmdId}, FROM=${cmdFrom}, TO=${cmdTo})`);
       await markStepFailed(step);
       throw new Error("MANI_WORK payload missing");
