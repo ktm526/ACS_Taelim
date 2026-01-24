@@ -204,8 +204,8 @@ async function createTaskForSide(side, config, activeTasks) {
 
   const availableByProduct = buildAvailableGrinderPositions(config.grinders);
   //console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치:`, 
-    Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(', ') || '없음'
-  );
+  //  Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(', ') || '없음'
+//  );
 
   const slotTargets = [];
   for (const slot of slots) {
