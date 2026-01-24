@@ -332,14 +332,38 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
 /** 아웃스토커 공지그 제품별 가용 수량 합산 (jig_state=1, model_no 기준) */
 function getOutstockerProductCounts(outstockerSides) {
   const counts = new Map();
+  
+  // 디버깅: 전체 구조 확인
+  if (!outstockerSides || Object.keys(outstockerSides).length === 0) {
+    console.log(`[TaskCreate] getOutstockerProductCounts: outstockerSides가 비어있음`);
+    return counts;
+  }
+  
   for (const side of OUT_SIDES) {
     const sideData = outstockerSides?.[side] || {};
-    const amrPos = normalizeText(sideData.amr_pos);
-    if (!amrPos) continue;
+    const rowsData = sideData.rows;
+    
+    // 디버깅: rows 구조 확인
+    if (!rowsData || typeof rowsData !== 'object') {
+      console.log(`[TaskCreate] ${side}: rows 데이터 없음 또는 객체 아님 (type: ${typeof rowsData})`);
+      continue;
+    }
+    
+    // amrPos 체크 제거 - rows는 amrPos와 무관하게 체크 가능
     for (const row of OUT_ROWS) {
-      const rowData = sideData.rows?.[row] || {};
-      const jigState = resolvePlcValue(rowData.jig_state_id);
-      const modelNo = resolvePlcValue(rowData.model_no_id);
+      const rowData = rowsData[row] || {};
+      const jigStateId = normalizeText(rowData.jig_state_id);
+      const modelNoId = normalizeText(rowData.model_no_id);
+      
+      // PLC 값 읽기
+      const jigState = jigStateId ? resolvePlcValue(jigStateId) : null;
+      const modelNo = modelNoId ? resolvePlcValue(modelNoId) : null;
+      
+      // 디버깅: 모든 row에 대해 로그 (처음 몇 개만)
+      if (side === 'L1' && row <= 2) {
+        console.log(`[TaskCreate] ${side}-${row}: jig_state_id=${jigStateId} → ${jigState}, model_no_id=${modelNoId} → ${modelNo}, rowData keys: ${Object.keys(rowData).join(',')}`);
+      }
+      
       if (jigState === 1 && modelNo !== null && !Number.isNaN(Number(modelNo))) {
         const key = String(Number(modelNo));
         counts.set(key, (counts.get(key) || 0) + 1);
