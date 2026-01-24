@@ -607,8 +607,7 @@ async function progressTask(task, robot) {
 
   const ok = await executeStep(step, robot);
   if (step.type === "PLC_READ" && !ok) {
-    // 조건 미충족이면 대기
-    await step.update({ status: "PENDING" });
+    // 조건 미충족이면 RUNNING 상태로 대기 (PENDING으로 돌리면 STEP_STARTED 무한 반복)
     return;
   }
   if (step.type === "NAV" && !ok) {

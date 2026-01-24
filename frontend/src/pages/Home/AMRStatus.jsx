@@ -284,7 +284,9 @@ const StepItem = React.memo(({
 });
 
 // ──────────────────────────────────────────────────────────────
-// TaskSteps 컴포넌트 - 완전 수동 fetch (자동 새로고침 없음)
+// TaskSteps 컴포넌트 - 자동 폴링 (UI 상태 유지)
+const POLL_INTERVAL_MS = 2000; // 2초마다 폴링
+
 const CurrentTaskSteps = React.memo(({ amrId, amrName, passwordConfirm }) => {
   // 상태: 데이터 + 로딩
   const [data, setData] = useState(null);
@@ -292,7 +294,56 @@ const CurrentTaskSteps = React.memo(({ amrId, amrName, passwordConfirm }) => {
   const expandedStepsRef = useRef(new Set());
   const containerRef = useRef(null);
   const taskIdRef = useRef(null); // 현재 task_id 추적
+  const lastDataHashRef = useRef(null); // 데이터 변경 감지용
   
+  // 데이터 해시 생성 (변경 감지용)
+  const getDataHash = useCallback((taskData) => {
+    if (!taskData) return null;
+    return JSON.stringify({
+      task_id: taskData.task_id,
+      status: taskData.status,
+      paused: taskData.paused,
+      current_seq: taskData.current_seq,
+      steps: taskData.steps?.map(s => ({ seq: s.seq, status: s.status }))
+    });
+  }, []);
+  
+  // 백그라운드 폴링용 fetch (로딩 표시 없음, 변경 시에만 업데이트)
+  const fetchTaskSilent = useCallback(async () => {
+    if (!amrId) return;
+    try {
+      const r = await fetch(`${API}/api/robots/${amrId}/current-task`);
+      if (r.status === 204 || r.status === 404) {
+        if (lastDataHashRef.current !== null) {
+          setData(null);
+          taskIdRef.current = null;
+          lastDataHashRef.current = null;
+        }
+        return;
+      }
+      if (!r.ok) return;
+      const taskData = await r.json();
+      if (!taskData?.steps?.length) {
+        if (lastDataHashRef.current !== null) {
+          setData(null);
+          taskIdRef.current = null;
+          lastDataHashRef.current = null;
+        }
+        return;
+      }
+      // 데이터가 실제로 변경된 경우에만 setState
+      const newHash = getDataHash(taskData);
+      if (newHash !== lastDataHashRef.current) {
+        taskIdRef.current = taskData.task_id;
+        lastDataHashRef.current = newHash;
+        setData(taskData);
+      }
+    } catch {
+      // 에러 시 무시 (기존 데이터 유지)
+    }
+  }, [amrId, getDataHash]);
+  
+  // 수동 새로고침용 fetch (로딩 표시 있음)
   const fetchTask = useCallback(async () => {
     if (!amrId) return;
     setIsLoading(true);
@@ -301,6 +352,7 @@ const CurrentTaskSteps = React.memo(({ amrId, amrName, passwordConfirm }) => {
       if (r.status === 204 || r.status === 404) {
         setData(null);
         taskIdRef.current = null;
+        lastDataHashRef.current = null;
         return;
       }
       if (!r.ok) throw new Error(`status: ${r.status}`);
@@ -308,21 +360,27 @@ const CurrentTaskSteps = React.memo(({ amrId, amrName, passwordConfirm }) => {
       if (!taskData?.steps?.length) {
         setData(null);
         taskIdRef.current = null;
+        lastDataHashRef.current = null;
         return;
       }
       taskIdRef.current = taskData.task_id;
+      lastDataHashRef.current = getDataHash(taskData);
       setData(taskData);
     } catch {
       setData(null);
       taskIdRef.current = null;
+      lastDataHashRef.current = null;
     } finally {
       setIsLoading(false);
     }
-  }, [amrId]);
+  }, [amrId, getDataHash]);
   
+  // 초기 로드 + 자동 폴링
   useEffect(() => {
-    fetchTask();
-  }, [fetchTask]);
+    fetchTask(); // 초기 로드 (로딩 표시)
+    const interval = setInterval(fetchTaskSilent, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [fetchTask, fetchTaskSilent]);
   
   const handleExpandChange = useCallback((seq, expanded) => {
     if (expanded) {
