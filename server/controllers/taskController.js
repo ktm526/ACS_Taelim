@@ -3,8 +3,8 @@ const { Op } = require('sequelize');
 const { Task, TaskStep, TaskLog } = require('../models');
 const Robot = require('../models/Robot');
 
-const TASK_TTL_MS = 30 * 1000;
-const CLEANUP_INTERVAL_MS = 10 * 1000;
+const TASK_TTL_MS = 10 * 60 * 1000; // 10분
+const CLEANUP_INTERVAL_MS = 60 * 1000; // 1분마다 체크
 
 async function cleanupOldTasks() {
   try {
@@ -12,7 +12,7 @@ async function cleanupOldTasks() {
     const rows = await Task.findAll({
       attributes: ['id', 'status', 'updatedAt'],
       where: {
-        status: { [Op.in]: ['DONE', 'CANCELED'] },
+        status: { [Op.in]: ['DONE', 'CANCELED', 'FAILED'] },
         updatedAt: { [Op.lt]: cutoff },
       },
     });
@@ -30,7 +30,7 @@ async function cleanupOldTasks() {
 // 즉시 실행 + 주기적 실행
 cleanupOldTasks();
 setInterval(cleanupOldTasks, CLEANUP_INTERVAL_MS);
-console.log('[TaskCleanup] 자동 삭제 스케줄러 시작 (30초 경과 DONE/CANCELED 태스크)');
+console.log('[TaskCleanup] 자동 삭제 스케줄러 시작 (10분 경과 DONE/CANCELED/FAILED 태스크)');
 
 /* POST /api/tasks  ─ Task + Steps 생성 */
 exports.create = async (req, res) => {
