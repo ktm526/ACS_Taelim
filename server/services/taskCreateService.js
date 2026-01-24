@@ -197,7 +197,7 @@ async function createTaskForSide(side, config, activeTasks) {
 
   const pickupStation = slots[0]?.amr_pos;
   if (!pickupStation) {
-    console.warn(`[TaskCreate] ${side}: L/R 1번 칸 AMR pos 없음`);
+    //console.warn(`[TaskCreate] ${side}: L/R 1번 칸 AMR pos 없음`);
     return;
   }
   //console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
@@ -210,13 +210,13 @@ async function createTaskForSide(side, config, activeTasks) {
   const slotTargets = [];
   for (const slot of slots) {
     if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) {
-      console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락 (product_type_id=${slot.product_type_id}, value=${slot.product_type_value}, mani=${slot.mani_pos})`);
+      //console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락 (product_type_id=${slot.product_type_id}, value=${slot.product_type_value}, mani=${slot.mani_pos})`);
       return;
     }
     const productKey = String(slot.product_type_value);
     const list = availableByProduct.get(productKey) || [];
     if (list.length === 0) {
-      console.log(`[TaskCreate] ${side}: 제품 ${productKey} 투입 가능 위치 부족 (슬롯 ${slot.key})`);
+      //console.log(`[TaskCreate] ${side}: 제품 ${productKey} 투입 가능 위치 부족 (슬롯 ${slot.key})`);
       return;
     }
     const next = list.shift();
@@ -485,7 +485,7 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
       .filter(Boolean)
   );
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    console.log(`[TaskCreate] conveyor${conveyorIndex}: 기존 태스크와 중복, 생성 스킵`);
+    //console.log(`[TaskCreate] conveyor${conveyorIndex}: 기존 태스크와 중복, 생성 스킵`);
     return;
   }
 
@@ -577,11 +577,11 @@ async function checkSide(side, config, activeTasks) {
 
     const current = isSignalOn(workId) ? 1 : 0;
     if (current === 1) {
-      console.log(`[TaskCreate] ${side}: 작업가능 신호 ON (${workId}=1) → 태스크 생성 시도`);
+     // console.log(`[TaskCreate] ${side}: 작업가능 신호 ON (${workId}=1) → 태스크 생성 시도`);
       await createTaskForSide(side, cfg, activeTasks);
     }
   } catch (err) {
-    console.error(`[TaskCreate] ${side} 체크 오류:`, err?.message || err);
+    //console.error(`[TaskCreate] ${side} 체크 오류:`, err?.message || err);
   } finally {
     sideLock[side] = false;
   }
