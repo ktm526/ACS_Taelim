@@ -292,7 +292,7 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
       try {
         await setRobotDI(
           fresh.ip,
-          MANI_WORK_OK_DI,  // DI 11을 false로 설정
+          0,  // DI 11을 false로 설정
           false,
           logLabel
         );
@@ -326,7 +326,7 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
       try {
         await setRobotDI(
           fresh.ip,
-          MANI_WORK_ERR_DI,  // DI 12를 false로 설정
+          1,  // DI 12를 false로 설정
           false,
           logLabel
         );
