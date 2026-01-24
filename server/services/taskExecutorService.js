@@ -229,8 +229,8 @@ function sendManiCommand(ip, payload, logLabel = "") {
     CMD_TO: String(payload.CMD_TO || "0"),
     CMD_STOP: String(payload.CMD_STOP || "0"),
     VISION_CHECK: String(
-    payload.vision_check === 1 ? 1 : 0
-),
+      payload.VISION_CHECK === 1 || payload.vision_check === 1 ? 1 : 0
+    ),
   };
   const body = {
     type: "module",

@@ -16,6 +16,7 @@ import {
   Collapse,
   Popconfirm,
   Divider,
+  Checkbox,
 } from "antd";
 import { SettingOutlined, DownOutlined, UpOutlined, EyeOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -191,7 +192,7 @@ export default function Canvas() {
   const [taskPanelOpen, setTaskPanelOpen] = useState(true);
   const [taskRobotId, setTaskRobotId] = useState(null);
   const [taskSteps, setTaskSteps] = useState([
-    { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", plcId: "", plcData: "", plcExpected: "" },
+    { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", visionCheck: "", plcId: "", plcData: "", plcExpected: "" },
   ]);
   const [taskSubmitting, setTaskSubmitting] = useState(false);
 
@@ -280,7 +281,7 @@ export default function Canvas() {
         case "NAV":
           return `→ ${payload.dest || "?"}`;
         case "MANI_WORK":
-          return `ID:${payload.CMD_ID} FROM:${payload.CMD_FROM} TO:${payload.CMD_TO}`;
+          return `ID:${payload.CMD_ID} FROM:${payload.CMD_FROM} TO:${payload.CMD_TO}${payload.VISION_CHECK === 1 ? " Vision✓" : ""}`;
         case "PLC_WRITE":
           return `${payload.PLC_BIT}=${payload.PLC_DATA}`;
         case "PLC_READ":
@@ -1050,6 +1051,7 @@ export default function Canvas() {
                     CMD_ID: Number(step.cmdId) || 0,
                     CMD_FROM: Number(step.cmdFrom) || 0,
                     CMD_TO: Number(step.cmdTo) || 0,
+                    VISION_CHECK: Number(step.visionCheck) === 1 ? 1 : 0,
                   },
                 };
               }
@@ -1149,7 +1151,7 @@ export default function Canvas() {
                 onClick={() =>
                   setTaskSteps((prev) => [
                     ...prev,
-                    { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", plcId: "", plcData: "", plcExpected: "" },
+                    { type: "NAV", dest: "", cmdId: "", cmdFrom: "", cmdTo: "", visionCheck: "", plcId: "", plcData: "", plcExpected: "" },
                   ])
                 }
               >
@@ -1215,7 +1217,7 @@ export default function Canvas() {
                     </div>
                   )}
                   {step.type === "MANI_WORK" && (
-                    <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 1fr 80px 1fr", gap: 6 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 80px 1fr 80px 1fr 100px 1fr", gap: 6 }}>
                       <span>CMD_ID</span>
                       <Input
                         size="small"
@@ -1248,6 +1250,17 @@ export default function Canvas() {
                           )
                         }
                         placeholder="숫자"
+                      />
+                      <span>Vision Check</span>
+                      <Input
+                        size="small"
+                        value={step.visionCheck ?? ""}
+                        onChange={(e) =>
+                          setTaskSteps((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, visionCheck: e.target.value } : s))
+                          )
+                        }
+                        placeholder="0 또는 1"
                       />
                     </div>
                   )}
