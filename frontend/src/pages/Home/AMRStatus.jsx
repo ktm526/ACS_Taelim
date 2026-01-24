@@ -694,95 +694,53 @@ export default function AMRStatus() {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // TaskSteps 컴포넌트 - 데이터 fetch와 UI 상태 완전 분리
+  // TaskSteps 컴포넌트 - 완전 수동 fetch (자동 새로고침 없음)
   const CurrentTaskSteps = React.memo(({ amr }) => {
     // ═══════════════════════════════════════════════════════════
-    // REF 기반 상태 (리렌더링 유발 안 함)
+    // 상태: 데이터 + 로딩
     // ═══════════════════════════════════════════════════════════
-    const expandedStepsRef = useRef(new Set());  // 확장된 스텝 seq 집합
-    const scrollPositionRef = useRef(0);          // 스크롤 위치
-    const containerRef = useRef(null);            // 스크롤 컨테이너
-    const dataSnapshotRef = useRef(null);         // 이전 데이터 스냅샷 (변경 감지용)
+    const [data, setData] = useState(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const expandedStepsRef = useRef(new Set());
+    const containerRef = useRef(null);
+    const taskIdRef = useRef(null); // 현재 task_id 추적
     
     // ═══════════════════════════════════════════════════════════
-    // 데이터 Fetch - 자동 새로고침 (3초)
+    // 수동 Fetch 함수
     // ═══════════════════════════════════════════════════════════
-    const { data: rawData, refetch, isFetching } = useQuery({
-      enabled: !!amr,
-      queryKey: ["currentTask", amr?.id],
-      queryFn: async () => {
-        try {
-          const r = await fetch(`${API}/api/robots/${amr.id}/current-task`);
-          if (r.status === 204 || r.status === 404) return null;
-          if (!r.ok) throw new Error(`status: ${r.status}`);
-          const taskData = await r.json();
-          if (!taskData?.steps?.length) return null;
-          return taskData;
-        } catch {
-          return null;
+    const fetchTask = useCallback(async () => {
+      if (!amr?.id) return;
+      setIsLoading(true);
+      try {
+        const r = await fetch(`${API}/api/robots/${amr.id}/current-task`);
+        if (r.status === 204 || r.status === 404) {
+          setData(null);
+          taskIdRef.current = null;
+          return;
         }
-      },
-      refetchInterval: 3000,
-      refetchIntervalInBackground: false,
-      refetchOnWindowFocus: false,
-      staleTime: 2000,
-      gcTime: 5000,
-      retry: false,
-    });
-    
-    // ═══════════════════════════════════════════════════════════
-    // 데이터 안정화 - 실제 변경 시에만 새 객체 반환
-    // ═══════════════════════════════════════════════════════════
-    const data = useMemo(() => {
-      if (!rawData) {
-        dataSnapshotRef.current = null;
-        return null;
-      }
-      
-      const prev = dataSnapshotRef.current;
-      
-      // 이전 데이터와 동일한지 깊은 비교
-      if (prev && 
-          prev.task_id === rawData.task_id &&
-          prev.current_seq === rawData.current_seq &&
-          prev.paused === rawData.paused &&
-          prev.steps.length === rawData.steps.length) {
-        // steps 상태 비교
-        let same = true;
-        for (let i = 0; i < prev.steps.length; i++) {
-          if (prev.steps[i].status !== rawData.steps[i].status) {
-            same = false;
-            break;
-          }
+        if (!r.ok) throw new Error(`status: ${r.status}`);
+        const taskData = await r.json();
+        if (!taskData?.steps?.length) {
+          setData(null);
+          taskIdRef.current = null;
+          return;
         }
-        if (same) return prev; // 동일하면 이전 참조 유지
+        taskIdRef.current = taskData.task_id;
+        setData(taskData);
+      } catch {
+        setData(null);
+        taskIdRef.current = null;
+      } finally {
+        setIsLoading(false);
       }
-      
-      // 변경되었으면 새 스냅샷 저장
-      dataSnapshotRef.current = rawData;
-      return rawData;
-    }, [rawData]);
+    }, [amr?.id]);
     
-    // ═══════════════════════════════════════════════════════════
-    // 스크롤 위치 복원 (데이터 변경 후)
-    // ═══════════════════════════════════════════════════════════
+    // 최초 마운트 시 한 번만 fetch
     useEffect(() => {
-      if (containerRef.current && scrollPositionRef.current > 0) {
-        // requestAnimationFrame으로 DOM 업데이트 후 복원
-        requestAnimationFrame(() => {
-          if (containerRef.current) {
-            containerRef.current.scrollTop = scrollPositionRef.current;
-          }
-        });
-      }
-    }, [data]);
+      fetchTask();
+    }, [fetchTask]);
     
-    // 스크롤 이벤트 핸들러 (ref에 저장, 리렌더링 안 함)
-    const handleScroll = useCallback((e) => {
-      scrollPositionRef.current = e.target.scrollTop;
-    }, []);
-    
-    // 확장 상태 변경 핸들러 (ref에 저장, 리렌더링 안 함)
+    // 확장 상태 변경 핸들러
     const handleExpandChange = useCallback((seq, expanded) => {
       if (expanded) {
         expandedStepsRef.current.add(seq);
@@ -792,47 +750,51 @@ export default function AMRStatus() {
     }, []);
     
     // ═══════════════════════════════════════════════════════════
-    // Mutations (일시정지/재시작/취소)
+    // 일시정지/재시작/취소 (수동 fetch 후 상태 갱신)
     // ═══════════════════════════════════════════════════════════
-    const pauseMut = useMutation({
-      mutationFn: () =>
-        fetch(`${API}/api/tasks/${data?.task_id}/pause`, { method: "PUT" }),
-      onSuccess: () => {
+    const handlePause = useCallback(async () => {
+      if (!taskIdRef.current) return;
+      try {
+        await fetch(`${API}/api/tasks/${taskIdRef.current}/pause`, { method: "PUT" });
         message.success("일시정지");
-        refetch();
-      },
-      onError: () => message.error("일시정지 실패"),
-    });
-
-    const restartMut = useMutation({
-      mutationFn: () =>
-        fetch(`${API}/api/tasks/${data?.task_id}/restart`, { method: "PUT" }),
-      onSuccess: () => {
+        fetchTask();
+      } catch {
+        message.error("일시정지 실패");
+      }
+    }, [fetchTask]);
+    
+    const handleRestart = useCallback(async () => {
+      if (!taskIdRef.current) return;
+      try {
+        await fetch(`${API}/api/tasks/${taskIdRef.current}/restart`, { method: "PUT" });
         message.success("재시작");
-        refetch();
-      },
-      onError: () => message.error("재시작 실패"),
-    });
-
-    const cancelMut = useMutation({
-      mutationFn: () =>
-        fetch(`${API}/api/tasks/${data?.task_id}`, { method: "DELETE" }),
-      onSuccess: () => {
+        fetchTask();
+      } catch {
+        message.error("재시작 실패");
+      }
+    }, [fetchTask]);
+    
+    const handleCancel = useCallback(async () => {
+      if (!taskIdRef.current) return;
+      try {
+        await fetch(`${API}/api/tasks/${taskIdRef.current}`, { method: "DELETE" });
         message.success("취소");
-        qc.setQueryData(["currentTask", amr?.id], null);
-      },
-      onError: () => message.error("취소 실패"),
-    });
+        setData(null);
+        taskIdRef.current = null;
+      } catch {
+        message.error("취소 실패");
+      }
+    }, []);
 
     const handleCancelWithPassword = useCallback(() => {
       passwordConfirm.showPasswordConfirm(
-        () => cancelMut.mutate(),
+        () => handleCancel(),
         {
           title: "태스크 취소 확인",
           description: `관리자 비밀번호가 필요합니다.\n\nAMR "${amr?.name}"의 태스크를 취소하시겠습니까?`
         }
       );
-    }, [amr?.name, cancelMut, passwordConfirm]);
+    }, [amr?.name, handleCancel, passwordConfirm]);
 
     // ═══════════════════════════════════════════════════════════
     // 렌더링
@@ -859,8 +821,9 @@ export default function AMRStatus() {
           <Tooltip title="새로고침">
             <Button
               size="small"
-              icon={<ReloadOutlined spin={isFetching} />}
-              onClick={() => refetch()}
+              icon={<ReloadOutlined spin={isLoading} />}
+              onClick={fetchTask}
+              disabled={isLoading}
             />
           </Tooltip>
         }
@@ -894,7 +857,6 @@ export default function AMRStatus() {
             {/* 스텝 목록 */}
             <div 
               ref={containerRef}
-              onScroll={handleScroll}
               style={{ 
                 flex: 1, 
                 overflowY: 'auto', 
@@ -922,8 +884,7 @@ export default function AMRStatus() {
                 <Button
                   size="small"
                   type="primary"
-                  onClick={() => restartMut.mutate()}
-                  loading={restartMut.isPending}
+                  onClick={handleRestart}
                   icon={<ReloadOutlined />}
                   style={{ flex: 1, fontSize: '12px' }}
                 >
@@ -932,8 +893,7 @@ export default function AMRStatus() {
               ) : (
                 <Button
                   size="small"
-                  onClick={() => pauseMut.mutate()}
-                  loading={pauseMut.isPending}
+                  onClick={handlePause}
                   icon={<PauseCircleOutlined />}
                   style={{ flex: 1, fontSize: '12px' }}
                 >
@@ -944,7 +904,6 @@ export default function AMRStatus() {
                 danger
                 size="small"
                 onClick={handleCancelWithPassword}
-                loading={cancelMut.isPending}
                 icon={<StopOutlined />}
                 style={{ flex: 1, fontSize: '12px' }}
               >
