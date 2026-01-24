@@ -601,13 +601,15 @@ async function handleRobot(robot, tasks) {
     }
 
     if (pendingTask) {
-      if (robot.status === "대기")  {
-        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps)`);
+      // '대기' 또는 '작업 중' 상태일 때 태스크 시작 허용
+      // (amrMonitorService에서 PENDING 태스크가 있으면 '작업 중'으로 변경하므로)
+      if (robot.status === "대기" || robot.status === "작업 중") {
+        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps, 로봇상태: ${robot.status})`);
         await pendingTask.update({ status: "RUNNING", current_seq: 0 });
         await progressTask(pendingTask, robot);
       } else {
-        // 로봇이 대기 상태가 아니면 대기
-        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: "${robot.status}" ≠ "대기")`);
+        // 로봇이 대기/작업 중 상태가 아니면 대기
+        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: "${robot.status}" ≠ "대기/작업 중")`);
       }
     }
   } catch (err) {
