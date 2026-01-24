@@ -187,11 +187,11 @@ async function getActiveTasks() {
 }
 
 async function createTaskForSide(side, config, activeTasks) {
-  console.log(`[TaskCreate] ${side}: createTaskForSide 시작`);
+  //console.log(`[TaskCreate] ${side}: createTaskForSide 시작`);
   
   const slots = getSideSlots(config.instockerSlots, side);
   if (slots.length === 0) {
-    console.log(`[TaskCreate] ${side}: 슬롯 정보 없음`);
+    //console.log(`[TaskCreate] ${side}: 슬롯 정보 없음`);
     return;
   }
 
@@ -200,10 +200,10 @@ async function createTaskForSide(side, config, activeTasks) {
     console.warn(`[TaskCreate] ${side}: L/R 1번 칸 AMR pos 없음`);
     return;
   }
-  console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
+  //console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
 
   const availableByProduct = buildAvailableGrinderPositions(config.grinders);
-  console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치:`, 
+  //console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치:`, 
     Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(', ') || '없음'
   );
 
@@ -233,16 +233,16 @@ async function createTaskForSide(side, config, activeTasks) {
 
   const robot = await Robot.findOne({ where: { name: "M1000" } });
   if (!robot) {
-    console.warn("[TaskCreate] M1000 로봇 없음");
+    //console.warn("[TaskCreate] M1000 로봇 없음");
     return;
   }
-  console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
+  //console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
 
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
   if (existingTask) {
-    console.log(`[TaskCreate] ${side}: M1000 기존 태스크 진행 중 (Task#${existingTask.id}, ${existingTask.status})`);
+    //console.log(`[TaskCreate] ${side}: M1000 기존 태스크 진행 중 (Task#${existingTask.id}, ${existingTask.status})`);
     return;
   }
 
@@ -293,7 +293,7 @@ async function createTaskForSide(side, config, activeTasks) {
   const newStations = new Set([pickupStation, ...slotTargets.map((t) => t.grinder_station)]);
   const newPlcIds = new Set();
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    console.log(`[TaskCreate] ${side}: 기존 태스크와 스테이션/PLC 중복, 생성 스킵`);
+    //console.log(`[TaskCreate] ${side}: 기존 태스크와 스테이션/PLC 중복, 생성 스킵`);
     return;
   }
 
@@ -305,9 +305,9 @@ async function createTaskForSide(side, config, activeTasks) {
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  console.log(
-    `[TaskCreate] ${side}: 작업가능=1 → Task#${task.id} 발행 (${steps.length} steps)`
-  );
+  //console.log(
+   // `[TaskCreate] ${side}: 작업가능=1 → Task#${task.id} 발행 (${steps.length} steps)`
+  //);
 }
 
 function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
@@ -350,25 +350,28 @@ function getOutstockerProductCounts(outstockerSides) {
     }
     
     // amrPos 체크 제거 - rows는 amrPos와 무관하게 체크 가능
+    let sideJigOk = 0;
     for (const row of OUT_ROWS) {
       const rowData = rowsData[row] || {};
       const jigStateId = normalizeText(rowData.jig_state_id);
       const modelNoId = normalizeText(rowData.model_no_id);
       
-      // PLC 값 읽기
       const jigState = jigStateId ? resolvePlcValue(jigStateId) : null;
       const modelNo = modelNoId ? resolvePlcValue(modelNoId) : null;
-      
-      // 디버깅: 모든 row에 대해 로그 (처음 몇 개만)
-      if (side === 'L1' && row <= 2) {
-        console.log(`[TaskCreate] ${side}-${row}: jig_state_id=${jigStateId} → ${jigState}, model_no_id=${modelNoId} → ${modelNo}, rowData keys: ${Object.keys(rowData).join(',')}`);
-      }
       
       if (jigState === 1 && modelNo !== null && !Number.isNaN(Number(modelNo))) {
         const key = String(Number(modelNo));
         counts.set(key, (counts.get(key) || 0) + 1);
+        sideJigOk++;
       }
     }
+    // 디버깅: L1/L2/R1/R2 각 측면별 row 1 샘플 + 해당 측면 jig_state=1 개수
+    const row1 = rowsData[1] || {};
+    const j1 = normalizeText(row1.jig_state_id);
+    const m1 = normalizeText(row1.model_no_id);
+    const v1 = j1 ? resolvePlcValue(j1) : null;
+    const v2 = m1 ? resolvePlcValue(m1) : null;
+    console.log(`[TaskCreate] ${side} row1: jig_state_id=${j1}→${v1}, model_no_id=${m1}→${v2} | 측면 jig_ok=${sideJigOk}`);
   }
   return counts;
 }
