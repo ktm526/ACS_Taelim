@@ -90,6 +90,410 @@ function safeParse(raw, fallback = {}) {
   return v ?? fallback;
 }
 
+// ──────────────────────────────────────────────────────────────
+// 개별 스텝 아이템 - 완전히 독립된 메모이제이션
+const StepItem = React.memo(({ 
+  step, 
+  isCurrentStep, 
+  isCompleted, 
+  isLast,
+  initialExpanded,
+  onExpandChange,
+}) => {
+  // 확장 상태를 로컬로 관리 (부모 리렌더링에 영향 안 받음)
+  const [isExpanded, setIsExpanded] = useState(initialExpanded);
+  
+  const handleClick = useCallback((e) => {
+    e.stopPropagation();
+    setIsExpanded(prev => {
+      const newState = !prev;
+      onExpandChange?.(step.seq, newState);
+      return newState;
+    });
+  }, [step.seq, onExpandChange]);
+  
+  // 스텝 아이콘
+  const stepIcon = useMemo(() => {
+    switch (step.type) {
+      case 'NAV':
+      case 'NAV_PRE':
+        return <CarOutlined />;
+      case 'MANI_WORK':
+        return <ToolOutlined />;
+      case 'PLC_WRITE':
+      case 'PLC_READ':
+        return <ThunderboltOutlined />;
+      case 'JACK_UP':
+      case 'JACK_DOWN':
+      case 'JACK':
+        return <ToolOutlined />;
+      case 'WAIT_FREE_PATH':
+        return <HourglassOutlined />;
+      default:
+        return <ClockCircleOutlined />;
+    }
+  }, [step.type]);
+  
+  // 스텝 요약
+  const stepSummary = useMemo(() => {
+    try {
+      const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
+      switch (step.type) {
+        case 'NAV':
+        case 'NAV_PRE':
+          return `→ ${p.dest || '?'}`;
+        case 'MANI_WORK':
+          return `매니 ${p.CMD_FROM}→${p.CMD_TO}`;
+        case 'PLC_WRITE':
+          return `PLC ${p.PLC_BIT}=${p.PLC_DATA}`;
+        case 'PLC_READ':
+          return `PLC ${p.PLC_ID}==${p.EXPECTED}`;
+        case 'JACK_UP':
+          return "잭 올리기";
+        case 'JACK_DOWN':
+          return "잭 내리기";
+        default:
+          return step.type;
+      }
+    } catch {
+      return step.type;
+    }
+  }, [step.type, step.payload]);
+  
+  // 스텝 상세 payload
+  const detailPayload = useMemo(() => {
+    try {
+      const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
+      return JSON.stringify(p, null, 2);
+    } catch {
+      return step.payload || "{}";
+    }
+  }, [step.payload]);
+
+  return (
+    <div style={{ marginBottom: isLast ? 0 : 8 }}>
+      <div 
+        onClick={handleClick}
+        style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          padding: '8px 10px',
+          background: isCurrentStep ? '#e6f7ff' : isCompleted ? '#f6ffed' : '#fafafa',
+          border: `1px solid ${isCurrentStep ? '#91d5ff' : isCompleted ? '#b7eb8f' : '#e8e8e8'}`,
+          borderRadius: isExpanded ? '6px 6px 0 0' : 6,
+          cursor: 'pointer',
+          transition: 'background 0.2s',
+        }}
+      >
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: isCompleted ? '#52c41a' : isCurrentStep ? '#1890ff' : '#d9d9d9',
+            color: 'white',
+            fontSize: 11,
+            marginRight: 10,
+            flexShrink: 0,
+          }}
+        >
+          {isCompleted ? <CheckCircleOutlined /> :
+           isCurrentStep ? <LoadingOutlined /> :
+           <span style={{ fontSize: 10 }}>{step.seq + 1}</span>}
+        </div>
+        
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            {stepIcon}
+            <Text 
+              strong={isCurrentStep}
+              style={{ 
+                fontSize: 12,
+                color: isCurrentStep ? '#1890ff' : 'inherit',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {stepSummary}
+            </Text>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Tag 
+              style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', margin: 0 }} 
+              color={
+                step.status === 'DONE' ? 'green' :
+                step.status === 'RUNNING' ? 'blue' :
+                step.status === 'PAUSED' ? 'orange' :
+                step.status === 'FAILED' ? 'red' : 'default'
+              }
+            >
+              {step.status}
+            </Tag>
+            <Text type="secondary" style={{ fontSize: 10 }}>{step.type}</Text>
+          </div>
+        </div>
+        
+        <div style={{ marginLeft: 8, color: '#999' }}>
+          {isExpanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+        </div>
+      </div>
+      
+      {isExpanded && (
+        <div 
+          style={{ 
+            padding: 10,
+            background: '#1a1a2e',
+            borderRadius: '0 0 6px 6px',
+            border: '1px solid #333',
+            borderTop: 'none',
+          }}
+        >
+          <Text style={{ fontSize: 10, color: '#888', display: 'block', marginBottom: 4 }}>
+            Payload:
+          </Text>
+          <pre style={{ 
+            margin: 0, 
+            color: '#a9b7c6', 
+            fontSize: 11, 
+            lineHeight: 1.5,
+            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}>
+            {detailPayload}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // 커스텀 비교 함수: 실제로 변경된 경우만 리렌더링
+  return (
+    prevProps.step.seq === nextProps.step.seq &&
+    prevProps.step.status === nextProps.step.status &&
+    prevProps.step.payload === nextProps.step.payload &&
+    prevProps.isCurrentStep === nextProps.isCurrentStep &&
+    prevProps.isCompleted === nextProps.isCompleted &&
+    prevProps.isLast === nextProps.isLast
+    // initialExpanded는 최초 마운트에만 사용되므로 비교하지 않음
+  );
+});
+
+// ──────────────────────────────────────────────────────────────
+// TaskSteps 컴포넌트 - 완전 수동 fetch (자동 새로고침 없음)
+const CurrentTaskSteps = React.memo(({ amrId, amrName, passwordConfirm }) => {
+  // 상태: 데이터 + 로딩
+  const [data, setData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const expandedStepsRef = useRef(new Set());
+  const containerRef = useRef(null);
+  const taskIdRef = useRef(null); // 현재 task_id 추적
+  
+  const fetchTask = useCallback(async () => {
+    if (!amrId) return;
+    setIsLoading(true);
+    try {
+      const r = await fetch(`${API}/api/robots/${amrId}/current-task`);
+      if (r.status === 204 || r.status === 404) {
+        setData(null);
+        taskIdRef.current = null;
+        return;
+      }
+      if (!r.ok) throw new Error(`status: ${r.status}`);
+      const taskData = await r.json();
+      if (!taskData?.steps?.length) {
+        setData(null);
+        taskIdRef.current = null;
+        return;
+      }
+      taskIdRef.current = taskData.task_id;
+      setData(taskData);
+    } catch {
+      setData(null);
+      taskIdRef.current = null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [amrId]);
+  
+  useEffect(() => {
+    fetchTask();
+  }, [fetchTask]);
+  
+  const handleExpandChange = useCallback((seq, expanded) => {
+    if (expanded) {
+      expandedStepsRef.current.add(seq);
+    } else {
+      expandedStepsRef.current.delete(seq);
+    }
+  }, []);
+  
+  const handlePause = useCallback(async () => {
+    if (!taskIdRef.current) return;
+    try {
+      await fetch(`${API}/api/tasks/${taskIdRef.current}/pause`, { method: "PUT" });
+      message.success("일시정지");
+      fetchTask();
+    } catch {
+      message.error("일시정지 실패");
+    }
+  }, [fetchTask]);
+  
+  const handleRestart = useCallback(async () => {
+    if (!taskIdRef.current) return;
+    try {
+      await fetch(`${API}/api/tasks/${taskIdRef.current}/restart`, { method: "PUT" });
+      message.success("재시작");
+      fetchTask();
+    } catch {
+      message.error("재시작 실패");
+    }
+  }, [fetchTask]);
+  
+  const handleCancel = useCallback(async () => {
+    if (!taskIdRef.current) return;
+    try {
+      await fetch(`${API}/api/tasks/${taskIdRef.current}`, { method: "DELETE" });
+      message.success("취소");
+      setData(null);
+      taskIdRef.current = null;
+    } catch {
+      message.error("취소 실패");
+    }
+  }, []);
+
+  const handleCancelWithPassword = useCallback(() => {
+    passwordConfirm.showPasswordConfirm(
+      () => handleCancel(),
+      {
+        title: "태스크 취소 확인",
+        description: `관리자 비밀번호가 필요합니다.\n\nAMR "${amrName || "-"}"의 태스크를 취소하시겠습니까?`
+      }
+    );
+  }, [amrName, handleCancel, passwordConfirm]);
+
+  return (
+    <Card
+      size="small"
+      bordered
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 600 }}>현재 태스크</span>
+          {data && (
+            <Tag 
+              color={data.paused ? 'orange' : 'blue'} 
+              icon={data.paused ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+              style={{ fontSize: '11px' }}
+            >
+              {data.paused ? '일시정지' : '실행중'}
+            </Tag>
+          )}
+        </div>
+      }
+      extra={
+        <Tooltip title="새로고침">
+          <Button
+            size="small"
+            icon={<ReloadOutlined spin={isLoading} />}
+            onClick={fetchTask}
+            disabled={isLoading}
+          />
+        </Tooltip>
+      }
+      bodyStyle={{ padding: 12, height: 'calc(100% - 46px)', display: 'flex', flexDirection: 'column' }}
+      style={{ width: '100%', height: '100%' }}
+    >
+      {data?.steps?.length > 0 ? (
+        <>
+          <div style={{ 
+            marginBottom: 12, 
+            padding: 10, 
+            background: '#f5f5f5', 
+            borderRadius: 6,
+            flexShrink: 0
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text strong>Task #{data.task_id}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {data.current_seq + 1} / {data.steps.length} 스텝
+              </Text>
+            </div>
+            <Progress 
+              percent={Math.round(((data.current_seq + 1) / data.steps.length) * 100)} 
+              size="small" 
+              status={data.paused ? 'exception' : 'active'}
+              showInfo={false}
+            />
+          </div>
+
+          <div 
+            ref={containerRef}
+            style={{ 
+              flex: 1, 
+              overflowY: 'auto', 
+              overflowX: 'hidden',
+              marginBottom: 12,
+              paddingRight: 4,
+            }}
+          >
+            {data.steps.map((step, index) => (
+              <StepItem
+                key={`${data.task_id}-${step.seq}`}
+                step={step}
+                isCurrentStep={step.seq === data.current_seq}
+                isCompleted={step.seq < data.current_seq}
+                isLast={index === data.steps.length - 1}
+                initialExpanded={expandedStepsRef.current.has(step.seq)}
+                onExpandChange={handleExpandChange}
+              />
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            {data.paused ? (
+              <Button
+                size="small"
+                type="primary"
+                onClick={handleRestart}
+                icon={<ReloadOutlined />}
+                style={{ flex: 1, fontSize: '12px' }}
+              >
+                재시작
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                onClick={handlePause}
+                icon={<PauseCircleOutlined />}
+                style={{ flex: 1, fontSize: '12px' }}
+              >
+                일시정지
+              </Button>
+            )}
+            <Button
+              danger
+              size="small"
+              onClick={handleCancelWithPassword}
+              icon={<StopOutlined />}
+              style={{ flex: 1, fontSize: '12px' }}
+            >
+              취소
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Empty description="현재 태스크 없음" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        </div>
+      )}
+    </Card>
+  );
+}, (prevProps, nextProps) => prevProps.amrId === nextProps.amrId);
+
 export default function AMRStatus() {
   const { token } = theme.useToken();
   const qc = useQueryClient();
@@ -501,201 +905,8 @@ export default function AMRStatus() {
   }, []);
 
   // ──────────────────────────────────────────────────────────────
-  // 개별 스텝 아이템 - 완전히 독립된 메모이제이션
-  const StepItem = React.memo(({ 
-    step, 
-    isCurrentStep, 
-    isCompleted, 
-    isLast,
-    initialExpanded,
-    onExpandChange,
-  }) => {
-    // 확장 상태를 로컬로 관리 (부모 리렌더링에 영향 안 받음)
-    const [isExpanded, setIsExpanded] = useState(initialExpanded);
-    
-    const handleClick = useCallback((e) => {
-      e.stopPropagation();
-      setIsExpanded(prev => {
-        const newState = !prev;
-        onExpandChange?.(step.seq, newState);
-        return newState;
-      });
-    }, [step.seq, onExpandChange]);
-    
-    // 스텝 아이콘
-    const stepIcon = useMemo(() => {
-      switch (step.type) {
-        case 'NAV':
-        case 'NAV_PRE':
-          return <CarOutlined />;
-        case 'MANI_WORK':
-          return <ToolOutlined />;
-        case 'PLC_WRITE':
-        case 'PLC_READ':
-          return <ThunderboltOutlined />;
-        case 'JACK_UP':
-        case 'JACK_DOWN':
-        case 'JACK':
-          return <ToolOutlined />;
-        case 'WAIT_FREE_PATH':
-          return <HourglassOutlined />;
-        default:
-          return <ClockCircleOutlined />;
-      }
-    }, [step.type]);
-    
-    // 스텝 요약
-    const stepSummary = useMemo(() => {
-      try {
-        const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
-        switch (step.type) {
-          case 'NAV':
-          case 'NAV_PRE':
-            return `→ ${p.dest || '?'}`;
-          case 'MANI_WORK':
-            return `매니 ${p.CMD_FROM}→${p.CMD_TO}`;
-          case 'PLC_WRITE':
-            return `PLC ${p.PLC_BIT}=${p.PLC_DATA}`;
-          case 'PLC_READ':
-            return `PLC ${p.PLC_ID}==${p.EXPECTED}`;
-          case 'JACK_UP':
-            return "잭 올리기";
-          case 'JACK_DOWN':
-            return "잭 내리기";
-          default:
-            return step.type;
-        }
-      } catch {
-        return step.type;
-      }
-    }, [step.type, step.payload]);
-    
-    // 스텝 상세 payload
-    const detailPayload = useMemo(() => {
-      try {
-        const p = typeof step.payload === "string" ? JSON.parse(step.payload) : step.payload || {};
-        return JSON.stringify(p, null, 2);
-      } catch {
-        return step.payload || "{}";
-      }
-    }, [step.payload]);
-
-    return (
-      <div style={{ marginBottom: isLast ? 0 : 8 }}>
-        <div 
-          onClick={handleClick}
-          style={{ 
-            display: 'flex',
-            alignItems: 'center',
-            padding: '8px 10px',
-            background: isCurrentStep ? '#e6f7ff' : isCompleted ? '#f6ffed' : '#fafafa',
-            border: `1px solid ${isCurrentStep ? '#91d5ff' : isCompleted ? '#b7eb8f' : '#e8e8e8'}`,
-            borderRadius: isExpanded ? '6px 6px 0 0' : 6,
-            cursor: 'pointer',
-            transition: 'background 0.2s',
-          }}
-        >
-          <div
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: isCompleted ? '#52c41a' : isCurrentStep ? '#1890ff' : '#d9d9d9',
-              color: 'white',
-              fontSize: 11,
-              marginRight: 10,
-              flexShrink: 0,
-            }}
-          >
-            {isCompleted ? <CheckCircleOutlined /> :
-             isCurrentStep ? <LoadingOutlined /> :
-             <span style={{ fontSize: 10 }}>{step.seq + 1}</span>}
-          </div>
-          
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-              {stepIcon}
-              <Text 
-                strong={isCurrentStep}
-                style={{ 
-                  fontSize: 12,
-                  color: isCurrentStep ? '#1890ff' : 'inherit',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {stepSummary}
-              </Text>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Tag 
-                style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', margin: 0 }} 
-                color={
-                  step.status === 'DONE' ? 'green' :
-                  step.status === 'RUNNING' ? 'blue' :
-                  step.status === 'PAUSED' ? 'orange' :
-                  step.status === 'FAILED' ? 'red' : 'default'
-                }
-              >
-                {step.status}
-              </Tag>
-              <Text type="secondary" style={{ fontSize: 10 }}>{step.type}</Text>
-            </div>
-          </div>
-          
-          <div style={{ marginLeft: 8, color: '#999' }}>
-            {isExpanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
-          </div>
-        </div>
-        
-        {isExpanded && (
-          <div 
-            style={{ 
-              padding: 10,
-              background: '#1a1a2e',
-              borderRadius: '0 0 6px 6px',
-              border: '1px solid #333',
-              borderTop: 'none',
-            }}
-          >
-            <Text style={{ fontSize: 10, color: '#888', display: 'block', marginBottom: 4 }}>
-              Payload:
-            </Text>
-            <pre style={{ 
-              margin: 0, 
-              color: '#a9b7c6', 
-              fontSize: 11, 
-              lineHeight: 1.5,
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}>
-              {detailPayload}
-            </pre>
-          </div>
-        )}
-      </div>
-    );
-  }, (prevProps, nextProps) => {
-    // 커스텀 비교 함수: 실제로 변경된 경우만 리렌더링
-    return (
-      prevProps.step.seq === nextProps.step.seq &&
-      prevProps.step.status === nextProps.step.status &&
-      prevProps.step.payload === nextProps.step.payload &&
-      prevProps.isCurrentStep === nextProps.isCurrentStep &&
-      prevProps.isCompleted === nextProps.isCompleted &&
-      prevProps.isLast === nextProps.isLast
-      // initialExpanded는 최초 마운트에만 사용되므로 비교하지 않음
-    );
-  });
-
-  // ──────────────────────────────────────────────────────────────
   // TaskSteps 컴포넌트 - 완전 수동 fetch (자동 새로고침 없음)
-  const CurrentTaskSteps = React.memo(({ amr }) => {
+  const _CurrentTaskStepsInner = React.memo(({ amr }) => {
     // ═══════════════════════════════════════════════════════════
     // 상태: 데이터 + 로딩
     // ═══════════════════════════════════════════════════════════
@@ -1329,7 +1540,11 @@ export default function AMRStatus() {
             </div>
 
             <div style={{ width: 350, flexShrink: 0, overflow: "auto" }}>
-              <CurrentTaskSteps amr={selectedAmr} />
+              <CurrentTaskSteps
+                amrId={selectedAmr?.id}
+                amrName={selectedAmr?.name}
+                passwordConfirm={passwordConfirm}
+              />
             </div>
           </div>
         )}
