@@ -99,9 +99,9 @@ async function sendAndReceive(host, port, apiNo, message, timeoutMs = 5000) {
     socket.connect(port, host, () => {
       const packet = buildPacket(apiNo, message);
       const headerHex = packet.slice(0, 16).toString("hex").toUpperCase().match(/.{1,2}/g)?.join(" ");
-      console.log(
-        `[TCP Test] send header=${headerHex} apiNo=${apiNo} len=${packet.length - 16}`
-      );
+      // console.log(
+      //   `[TCP Test] send header=${headerHex} apiNo=${apiNo} len=${packet.length - 16}`
+      // );
       socket.write(packet);
     });
 
@@ -148,9 +148,9 @@ async function runTestLoop() {
         response: result.response,
       };
       testResults.push(entry);
-      console.log(
-        `[TCP Test] OK ${result.elapsedMs}ms - ${JSON.stringify(result.response).slice(0, 100)}`
-      );
+      // console.log(
+      //   `[TCP Test] OK ${result.elapsedMs}ms - ${JSON.stringify(result.response).slice(0, 100)}`
+      // );
     } catch (err) {
       const entry = {
         timestamp,
@@ -159,7 +159,7 @@ async function runTestLoop() {
         error: err.message,
       };
       testResults.push(entry);
-      console.log(`[TCP Test] FAIL - ${err.message}`);
+      // console.log(`[TCP Test] FAIL - ${err.message}`);
     }
 
     // 최근 100개만 유지
@@ -189,9 +189,9 @@ function start(config = {}) {
   testResults = [];
   isRunning = true;
 
-  console.log(
-    `[TCP Test] Starting: ${testConfig.host}:${testConfig.port}, interval=${testConfig.intervalMs}ms`
-  );
+  // console.log(
+  //   `[TCP Test] Starting: ${testConfig.host}:${testConfig.port}, interval=${testConfig.intervalMs}ms`
+  // );
   runTestLoop();
 
   return { success: true, message: "테스트 시작됨" };
