@@ -7,12 +7,46 @@
 //  - 복귀
 
 const plc = require("./plcMonitorService");
+const { sendAndReceive } = require("./tcpTestService");
 const DeviceInStocker = require("../models/DeviceInStocker");
 const DeviceGrinder = require("../models/DeviceGrinder");
 const DeviceOutStocker = require("../models/DeviceOutStocker");
 const DeviceConveyor = require("../models/DeviceConveyor");
 const Robot = require("../models/Robot");
 const { Task, TaskStep, TaskLog } = require("../models");
+
+// 로봇 매니퓰레이터 TASK_STATUS 확인 (0이면 유휴 상태)
+const DOOSAN_STATE_API = 4022;
+const DOOSAN_STATE_PORT = 19207;
+const DOOSAN_STATE_MESSAGE = {
+  type: "module",
+  relative_path: "doosan_state.py",
+};
+
+async function checkRobotTaskStatus(robotIp) {
+  try {
+    const response = await sendAndReceive(
+      robotIp,
+      DOOSAN_STATE_PORT,
+      DOOSAN_STATE_API,
+      DOOSAN_STATE_MESSAGE,
+      3000 // 3초 타임아웃
+    );
+    if (response && response.response) {
+      const taskStatus = response.response.TASK_STATUS;
+      const isIdle = taskStatus === "0" || taskStatus === 0;
+      if (!isIdle) {
+        console.log(`[TaskCreate] 로봇(${robotIp}) TASK_STATUS=${taskStatus} (작업 중) → 태스크 발행 스킵`);
+      }
+      return isIdle;
+    }
+    console.warn(`[TaskCreate] 로봇(${robotIp}) doosan_state 응답 없음`);
+    return false;
+  } catch (err) {
+    console.error(`[TaskCreate] 로봇(${robotIp}) TASK_STATUS 확인 실패:`, err.message);
+    return false; // 실패 시 안전하게 발행하지 않음
+  }
+}
 
 // 로그 기록 함수
 async function logTaskEvent(taskId, event, message, options = {}) {
@@ -332,6 +366,12 @@ async function createTaskForSide(side, config, activeTasks) {
     return;
   }
 
+  // 로봇 매니퓰레이터 TASK_STATUS 확인 (0이어야 발행)
+  const robotReady = await checkRobotTaskStatus(robot.ip);
+  if (!robotReady) {
+    return;
+  }
+
   const task = await Task.create(
     {
       robot_id: robot.id,
@@ -419,36 +459,16 @@ function getOutstockerProductCounts(outstockerSides) {
   return counts;
 }
 
-async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
-  const conveyorIndex = conveyorItem.index;
-  const amrPos = normalizeText(conveyorItem.amr_pos);
-  if (!amrPos) {
-    console.warn(`[TaskCreate] conveyor${conveyorIndex}: AMR pos 없음`);
-    return;
-  }
-
-  const rawProductNo = conveyorItem.product_no;
-  const productNo =
-    rawProductNo != null && String(rawProductNo).trim() !== ""
-      ? Number(rawProductNo)
-      : null;
-  if (productNo === null || Number.isNaN(productNo)) {
-    console.warn(`[TaskCreate] conveyor${conveyorIndex}: 제품 번호 없음`);
-    return;
-  }
-
-  const rows = getAvailableOutstockerRows(config.outstockerSides, productNo, qty);
-  if (rows.length < qty) {
-    console.log(`[TaskCreate] conveyor${conveyorIndex}: 공지그 수량 부족 (${rows.length}/${qty})`);
-    return;
-  }
+// 통합 컨베이어 태스크 생성 (여러 컨베이어 요청을 하나의 태스크로 처리)
+async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
+  // conveyorRequests: [{ item, qty, productNo }, ...]
   
-  // 디버깅: 사용할 아웃스토커 row 정보 출력
-  console.log(`[TaskCreate] conveyor${conveyorIndex}: 아웃스토커 row ${rows.length}개 선택됨`);
-  rows.forEach((r, i) => {
-    console.log(`  [${i+1}] ${r.side}-${r.row}: amr_pos=${r.amr_pos}, mani_pos=${r.mani_pos}`);
-  });
-
+  if (!conveyorRequests.length) return;
+  
+  const totalQty = conveyorRequests.reduce((sum, r) => sum + r.qty, 0);
+  console.log(`[TaskCreate] 컨베이어 통합 태스크: ${conveyorRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
+  
+  // 로봇 확인
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
   if (!robot) {
     console.warn("[TaskCreate] M500-S-02 로봇 없음");
@@ -459,108 +479,169 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
   if (existingTask) {
-    console.log(`[TaskCreate] conveyor${conveyorIndex}: M500-S-02 기존 태스크 진행 중`);
+    console.log(`[TaskCreate] 컨베이어 통합: M500-S-02 기존 태스크 진행 중`);
     return;
   }
 
-  // Robot의 슬롯 정보 파싱 (slot_no 목록)
+  // Robot의 슬롯 정보 파싱
   const robotSlots = safeParse(robot.slots, []);
   const slotNos = robotSlots
     .map((s) => (typeof s === "object" ? s.slot_no : s))
     .filter((n) => n != null)
     .sort((a, b) => a - b);
   
-  if (slotNos.length < qty) {
-    console.warn(`[TaskCreate] conveyor${conveyorIndex}: AMR 슬롯 부족 (필요: ${qty}, 보유: ${slotNos.length})`);
+  if (slotNos.length < totalQty) {
+    console.warn(`[TaskCreate] 컨베이어 통합: AMR 슬롯 부족 (필요: ${totalQty}, 보유: ${slotNos.length})`);
     return;
   }
 
-  // 컨베이어 mani_pos
-  const conveyorManiPos = normalizeText(conveyorItem.mani_pos);
-  if (!conveyorManiPos) {
-    console.warn(`[TaskCreate] conveyor${conveyorIndex}: Mani Pos 없음`);
-    return;
+  // 각 컨베이어별로 필요한 아웃스토커 row 수집
+  const pickupInfos = []; // { rowInfo, conveyorIdx, slotIndex }
+  let slotIndex = 0;
+  
+  for (const req of conveyorRequests) {
+    const rows = getAvailableOutstockerRows(config.outstockerSides, req.productNo, req.qty);
+    if (rows.length < req.qty) {
+      console.log(`[TaskCreate] 컨베이어${req.item.index}: 제품${req.productNo} 공지그 수량 부족 (${rows.length}/${req.qty})`);
+      return;
+    }
+    
+    for (let i = 0; i < req.qty; i++) {
+      pickupInfos.push({
+        rowInfo: rows[i],
+        conveyorItem: req.item,
+        productNo: req.productNo,
+        slotIndex: slotIndex,
+      });
+      slotIndex++;
+    }
+  }
+  
+  console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 픽업 ${pickupInfos.length}개 예정`);
+  pickupInfos.forEach((p, i) => {
+    console.log(`  [${i+1}] ${p.rowInfo.side}-${p.rowInfo.row} → C${p.conveyorItem.index}용 (제품${p.productNo})`);
+  });
+
+  // 컨베이어 설정 확인
+  for (const req of conveyorRequests) {
+    const amrPos = normalizeText(req.item.amr_pos);
+    const maniPos = normalizeText(req.item.mani_pos);
+    if (!amrPos) {
+      console.warn(`[TaskCreate] conveyor${req.item.index}: AMR pos 없음`);
+      return;
+    }
+    if (!maniPos) {
+      console.warn(`[TaskCreate] conveyor${req.item.index}: Mani Pos 없음`);
+      return;
+    }
   }
 
   const steps = [];
-  // (AMR 이동 - MANI WORK) * qty  (아웃스토커 픽업)
-  // AMR 슬롯은 Robot에 설정된 slot_no 사용
-  // 참고: getAvailableOutstockerRows에서 mani_pos가 있는 row만 반환함
-  for (let idx = 0; idx < rows.length && idx < qty; idx++) {
-    const rowInfo = rows[idx];
-    const amrSlotNo = slotNos[idx]; // Robot에 설정된 slot_no 사용
+  
+  // ═══════════════════════════════════════════════════════════════
+  // PHASE 1: 아웃스토커에서 모든 지그 픽업
+  // ═══════════════════════════════════════════════════════════════
+  for (let idx = 0; idx < pickupInfos.length; idx++) {
+    const info = pickupInfos[idx];
+    const amrSlotNo = slotNos[idx];
     
     steps.push({
       type: "NAV",
-      payload: JSON.stringify({ dest: rowInfo.amr_pos }),
+      payload: JSON.stringify({ dest: info.rowInfo.amr_pos }),
     });
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: 1, // 항상 1
-        CMD_FROM: Number(rowInfo.mani_pos), // 아웃스토커 mani_pos
-        CMD_TO: amrSlotNo, // AMR slot_no
-        VISION_CHECK: 1, // 아웃스토커에서 픽업할 때는 1
+        CMD_ID: 1,
+        CMD_FROM: Number(info.rowInfo.mani_pos),
+        CMD_TO: amrSlotNo,
+        VISION_CHECK: 1,
       }),
     });
   }
 
-  // 컨베이어로 이동
-  steps.push({
-    type: "NAV",
-    payload: JSON.stringify({ dest: amrPos }),
-  });
-
-  // (컨베이어 시퀀스) * qty
-  for (let i = 0; i < qty; i += 1) {
-    const amrSlotNo = slotNos[i]; // Robot에 설정된 slot_no 사용
+  // ═══════════════════════════════════════════════════════════════
+  // PHASE 2: 각 컨베이어에 순차적으로 투입
+  // ═══════════════════════════════════════════════════════════════
+  for (const req of conveyorRequests) {
+    const conveyorItem = req.item;
+    const amrPos = normalizeText(conveyorItem.amr_pos);
+    const conveyorManiPos = normalizeText(conveyorItem.mani_pos);
     
+    // 해당 컨베이어로 이동
     steps.push({
-      type: "PLC_WRITE",
-      payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
+      type: "NAV",
+      payload: JSON.stringify({ dest: amrPos }),
     });
-    steps.push({
-      type: "PLC_READ",
-      payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1 }),
-    });
-    steps.push({
-      type: "PLC_READ",
-      payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1 }),
-    });
-    steps.push({
-      type: "PLC_WRITE",
-      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
-    });
-    steps.push({
-      type: "MANI_WORK",
-      payload: JSON.stringify({
-        CMD_ID: 1, // 항상 1
-        CMD_FROM: amrSlotNo, // AMR slot_no
-        CMD_TO: Number(conveyorManiPos), // 컨베이어 mani_pos
-        VISION_CHECK: 0, // 컨베이어에 놓을 때는 0
-      }),
-    });
-    steps.push({
-      type: "PLC_WRITE",
-      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1 }),
-    });
+    
+    // 해당 컨베이어에 투입할 지그들 찾기
+    const itemsForThisConveyor = pickupInfos.filter(
+      p => p.conveyorItem.index === conveyorItem.index
+    );
+    
+    // 각 지그 투입 시퀀스
+    for (const info of itemsForThisConveyor) {
+      const amrSlotNo = slotNos[info.slotIndex];
+      
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
+      });
+      steps.push({
+        type: "PLC_READ",
+        payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1 }),
+      });
+      steps.push({
+        type: "PLC_READ",
+        payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1 }),
+      });
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
+      });
+      steps.push({
+        type: "MANI_WORK",
+        payload: JSON.stringify({
+          CMD_ID: 1,
+          CMD_FROM: amrSlotNo,
+          CMD_TO: Number(conveyorManiPos),
+          VISION_CHECK: 0,
+        }),
+      });
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1 }),
+      });
+    }
   }
 
+  // 리소스 중복 체크
   const tasks = activeTasks || (await getActiveTasks());
-  const newStations = new Set([amrPos, ...rows.map((r) => r.amr_pos)]);
+  const newStations = new Set([
+    ...conveyorRequests.map(r => normalizeText(r.item.amr_pos)),
+    ...pickupInfos.map(p => p.rowInfo.amr_pos),
+  ].filter(Boolean));
+  
   const newPlcIds = new Set(
-    [
-      conveyorItem.stop_request_id,
-      conveyorItem.stop_id,
-      conveyorItem.input_ready_id,
-      conveyorItem.input_in_progress_id,
-      conveyorItem.input_done_id,
-    ]
+    conveyorRequests.flatMap(r => [
+      r.item.stop_request_id,
+      r.item.stop_id,
+      r.item.input_ready_id,
+      r.item.input_in_progress_id,
+      r.item.input_done_id,
+    ])
       .map(normalizeText)
       .filter(Boolean)
   );
+  
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    //console.log(`[TaskCreate] conveyor${conveyorIndex}: 기존 태스크와 중복, 생성 스킵`);
+    console.log(`[TaskCreate] 컨베이어 통합: 기존 태스크와 중복, 생성 스킵`);
+    return;
+  }
+
+  // 로봇 매니퓰레이터 TASK_STATUS 확인
+  const robotReady = await checkRobotTaskStatus(robot.ip);
+  if (!robotReady) {
     return;
   }
 
@@ -572,13 +653,14 @@ async function createTaskForConveyor(conveyorItem, config, qty, activeTasks) {
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
+  const summary = conveyorRequests.map(r => `C${r.item.index}:${r.qty}`).join('+');
   console.log(
-    `[TaskCreate] conveyor${conveyorIndex}: 투입수량 ${qty} → Task#${task.id} 발행 (${steps.length} steps)`
+    `[TaskCreate] 컨베이어 통합(${summary}): Task#${task.id} 발행 (${steps.length} steps)`
   );
-  await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어${conveyorIndex} 태스크 생성 (${steps.length} 스텝, 수량 ${qty})`, {
+  await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어 통합 태스크 (${summary}, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { conveyorIndex, qty, stepsCount: steps.length },
+    payload: { conveyors: conveyorRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length },
   });
 }
 
@@ -668,22 +750,49 @@ async function checkSide(side, config, activeTasks) {
 }
 
 async function checkConveyors(config, activeTasks) {
+  // 모든 컨베이어의 요청을 수집
+  const conveyorRequests = [];
+  
   for (const item of config.conveyors || []) {
     const index = item.index;
     if (conveyorLock.get(index)) continue;
-    conveyorLock.set(index, true);
-    try {
-      const qty4 = normalizeText(item.input_qty_4_id);
-      const qty1 = normalizeText(item.input_qty_1_id);
-      const qty =
-        qty4 && isSignalOn(qty4) ? 4 : qty1 && isSignalOn(qty1) ? 1 : 0;
-      if (!qty) continue;
-      console.log(`[TaskCreate] Conveyor${index}: 투입수량 신호 감지 (qty=${qty}) → 태스크 생성 시도`);
-      await createTaskForConveyor(item, config, qty, activeTasks);
-    } catch (err) {
-      console.error(`[TaskCreate] conveyor${item.index} 체크 오류:`, err?.message || err);
-    } finally {
-      conveyorLock.set(index, false);
+    
+    const qty4 = normalizeText(item.input_qty_4_id);
+    const qty1 = normalizeText(item.input_qty_1_id);
+    const qty = qty4 && isSignalOn(qty4) ? 4 : qty1 && isSignalOn(qty1) ? 1 : 0;
+    
+    if (!qty) continue;
+    
+    const rawProductNo = item.product_no;
+    const productNo =
+      rawProductNo != null && String(rawProductNo).trim() !== ""
+        ? Number(rawProductNo)
+        : null;
+    
+    if (productNo === null || Number.isNaN(productNo)) {
+      console.warn(`[TaskCreate] conveyor${index}: 제품 번호 없음`);
+      continue;
+    }
+    
+    conveyorRequests.push({ item, qty, productNo });
+  }
+  
+  if (!conveyorRequests.length) return;
+  
+  // 모든 관련 컨베이어 락 설정
+  for (const req of conveyorRequests) {
+    conveyorLock.set(req.item.index, true);
+  }
+  
+  try {
+    console.log(`[TaskCreate] 컨베이어 요청 감지: ${conveyorRequests.map(r => `C${r.item.index}(제품${r.productNo}, ${r.qty}개)`).join(', ')}`);
+    await createTaskForConveyors(conveyorRequests, config, activeTasks);
+  } catch (err) {
+    console.error(`[TaskCreate] 컨베이어 통합 체크 오류:`, err?.message || err);
+  } finally {
+    // 모든 컨베이어 락 해제
+    for (const req of conveyorRequests) {
+      conveyorLock.set(req.item.index, false);
     }
   }
 }
@@ -695,6 +804,12 @@ function start() {
       const config = await loadConfig();
       const activeTasks = await getActiveTasks();
       await logTaskCreateStatus(config);
+      
+      // 기존 활성 태스크가 있으면 새 작업 발행하지 않음
+      if (activeTasks.length > 0) {
+        return;
+      }
+      
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
       });
@@ -709,6 +824,12 @@ function start() {
       const config = await loadConfig();
       const activeTasks = await getActiveTasks();
       await logTaskCreateStatus(config);
+      
+      // 기존 활성 태스크가 있으면 새 작업 발행하지 않음
+      if (activeTasks.length > 0) {
+        return;
+      }
+      
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
       });

@@ -4,7 +4,35 @@ const net = require('net');
 const { Op } = require('sequelize');
 const Robot = require('../models/Robot');
 const { Task } = require('../models');
+const { sendAndReceive } = require('./tcpTestService');
 //const { //logConnChange } = require('./connectionLogger');
+
+// 로봇 매니퓰레이터 TASK_STATUS 확인
+const DOOSAN_STATE_API = 4022;
+const DOOSAN_STATE_PORT = 19207;
+const DOOSAN_STATE_MESSAGE = {
+  type: "module",
+  relative_path: "doosan_state.py",
+};
+
+async function checkRobotDoosanTaskStatus(robotIp) {
+  try {
+    const response = await sendAndReceive(
+      robotIp,
+      DOOSAN_STATE_PORT,
+      DOOSAN_STATE_API,
+      DOOSAN_STATE_MESSAGE,
+      2000 // 2초 타임아웃
+    );
+    if (response && response.response) {
+      const taskStatus = response.response.TASK_STATUS;
+      return taskStatus !== "0" && taskStatus !== 0;
+    }
+    return false;
+  } catch {
+    return false; // 실패 시 false
+  }
+}
 
 // AMR Push Monitoring Service
 // - Listens on TCP port for robot push data
@@ -97,6 +125,21 @@ function handlePush(sock, ip) {
             let statusStr;
             if (isEmergencyNow) {
                 statusStr = '비상정지';
+                // 비상정지 시 해당 로봇의 RUNNING 태스크를 PAUSED로 변경
+                try {
+                    const robot = await Robot.findOne({ where: { name } });
+                    if (robot) {
+                        const runningTask = await Task.findOne({
+                            where: { robot_id: robot.id, status: 'RUNNING' },
+                        });
+                        if (runningTask) {
+                            await runningTask.update({ status: 'PAUSED' });
+                            console.log(`[AMR] 비상정지 감지 → Task#${runningTask.id} 일시정지`);
+                        }
+                    }
+                } catch (e) {
+                    console.error('[AMR] 비상정지 태스크 일시정지 오류:', e.message);
+                }
             } else if (hasErrors || [5, 6].includes(tsRaw)) {
                 statusStr = '오류';
             } else if (isChargingNow) {
@@ -111,10 +154,17 @@ function handlePush(sock, ip) {
             if (statusStr === '이동' || statusStr === '대기') {
                 const robot = await Robot.findOne({ where: { name } });
                 if (robot) {
+                    // DB에서 태스크 확인
                     const assigned = await Task.findOne({
                         where: { robot_id: robot.id, status: ['PENDING', 'RUNNING', 'PAUSED'] },
                     });
-                    if (assigned) statusStr = '작업 중';
+                    if (assigned) {
+                        statusStr = '작업 중';
+                    } else {
+                        // 로봇 매니퓰레이터 TASK_STATUS 확인 (0이 아니면 작업 중)
+                        const doosanBusy = await checkRobotDoosanTaskStatus(robot.ip);
+                        if (doosanBusy) statusStr = '작업 중';
+                    }
                 }
             }
 

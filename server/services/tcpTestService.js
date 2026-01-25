@@ -230,4 +230,5 @@ module.exports = {
   stop,
   getStatus,
   getResults,
+  sendAndReceive, // 외부에서 단일 요청용
 };
