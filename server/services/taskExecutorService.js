@@ -507,6 +507,56 @@ async function executeStep(step, robot) {
       } catch (e) {
         console.warn(`${stepLabel}: DO 리셋 실패 (무시): ${e.message}`);
       }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // AMR 슬롯 상태 업데이트
+      // ═══════════════════════════════════════════════════════════════
+      try {
+        const amrSlotNo = payload.AMR_SLOT_NO;
+        const productNo = payload.PRODUCT_NO;
+        
+        if (amrSlotNo !== undefined) {
+          // Robot의 slots 배열 파싱
+          const currentSlots = JSON.parse(robot.slots || '[]');
+          
+          // 슬롯 찾기 (slot_no로 매칭)
+          const slotIdx = currentSlots.findIndex(
+            s => (typeof s === 'object' ? s.slot_no : s) === amrSlotNo
+          );
+          
+          if (slotIdx !== -1) {
+            const isLoading = Number(cmdTo) === Number(amrSlotNo); // 적재 (CMD_TO가 슬롯)
+            const isUnloading = Number(cmdFrom) === Number(amrSlotNo); // 하역 (CMD_FROM이 슬롯)
+            
+            if (isLoading && productNo !== undefined) {
+              // 적재: 해당 슬롯에 제품 번호 저장
+              if (typeof currentSlots[slotIdx] === 'object') {
+                currentSlots[slotIdx].product_type = Number(productNo);
+              } else {
+                currentSlots[slotIdx] = { slot_no: amrSlotNo, product_type: Number(productNo) };
+              }
+              console.log(`${stepLabel}: 슬롯 ${amrSlotNo} ← 제품 ${productNo} 적재`);
+            } else if (isUnloading) {
+              // 하역: 해당 슬롯 비우기
+              if (typeof currentSlots[slotIdx] === 'object') {
+                currentSlots[slotIdx].product_type = 0;
+              } else {
+                currentSlots[slotIdx] = { slot_no: amrSlotNo, product_type: 0 };
+              }
+              console.log(`${stepLabel}: 슬롯 ${amrSlotNo} → 비움`);
+            }
+            
+            // DB 업데이트
+            await Robot.update(
+              { slots: JSON.stringify(currentSlots) },
+              { where: { id: robot.id } }
+            );
+          }
+        }
+      } catch (slotErr) {
+        console.warn(`${stepLabel}: 슬롯 업데이트 실패 (무시): ${slotErr.message}`);
+      }
+      
       console.log(`${stepLabel}: ══════════════════════════════════════════`);
       return true;
     }

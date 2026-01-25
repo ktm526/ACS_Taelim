@@ -275,9 +275,12 @@ async function createTaskForSide(side, config, activeTasks) {
     slotTargets.push({
       slotIndex: slot.index,
       product_type_id: slot.product_type_id,
+      product_type_value: slot.product_type_value,
       instocker_mani_pos: slot.mani_pos,
       grinder_station: next.station,
       grinder_mani_pos: next.mani_pos,
+      grinderIndex: next.grinderIndex, // 연마기 번호 추가
+      grinderPosition: next.position,
     });
     availableByProduct.set(slot.product_type_id, list);
     console.log(`[TaskCreate] ${side}: 슬롯 ${slot.key}(제품${productKey}) → 연마기 ${next.grinderIndex}-${next.position}`);
@@ -302,6 +305,46 @@ async function createTaskForSide(side, config, activeTasks) {
     return;
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // AMR 슬롯 스택 구조 처리
+  // 스택1: 21, 22, 23 (하단→상단)
+  // 스택2: 31, 32, 33 (하단→상단)
+  // 적재: 낮은 연마기 번호 → 스택 하단, 높은 연마기 번호 → 스택 상단
+  // 하역: 스택 상단부터 (높은 연마기 번호부터)
+  // ═══════════════════════════════════════════════════════════════
+  
+  // 슬롯을 스택으로 분리 (20번대, 30번대)
+  const stack1 = slotNos.filter(n => n >= 20 && n < 30).sort((a, b) => a - b); // [21, 22, 23]
+  const stack2 = slotNos.filter(n => n >= 30 && n < 40).sort((a, b) => a - b); // [31, 32, 33]
+  
+  // 스택 interleave 순서로 재배열 (낮은 연마기용부터 배치)
+  // [21, 31, 22, 32, 23, 33] - 스택1 하단, 스택2 하단, 스택1 중단, ...
+  const interleavedSlotNos = [];
+  const maxLen = Math.max(stack1.length, stack2.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (stack1[i] !== undefined) interleavedSlotNos.push(stack1[i]);
+    if (stack2[i] !== undefined) interleavedSlotNos.push(stack2[i]);
+  }
+  
+  // slotTargets를 연마기 번호(grinderIndex) 오름차순 정렬 (1→6)
+  const slotTargetsSortedByGrinder = [...slotTargets].sort(
+    (a, b) => a.grinderIndex - b.grinderIndex
+  );
+  
+  // 적재 순서 매핑: 연마기 번호 순으로 interleaved 슬롯에 배치
+  // grinderIndex 1 → interleavedSlotNos[0] (21)
+  // grinderIndex 2 → interleavedSlotNos[1] (31)
+  // ...
+  const loadingMap = new Map(); // instocker_mani_pos → { amrSlotNo, product, target }
+  slotTargetsSortedByGrinder.forEach((target, idx) => {
+    const amrSlotNo = interleavedSlotNos[idx];
+    loadingMap.set(target.instocker_mani_pos, {
+      amrSlotNo,
+      product: target.product_type_value,
+      target,
+    });
+  });
+
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
@@ -313,29 +356,37 @@ async function createTaskForSide(side, config, activeTasks) {
   const steps = [];
   steps.push({ type: "NAV", payload: JSON.stringify({ dest: pickupStation }) });
 
-  // 인스토커 -> AMR 적재 (1칸 ~ 6칸 순서)
-  // CMD_ID는 항상 1, CMD_FROM=인스토커 mani_pos, CMD_TO=AMR 슬롯(slot_no)
-  slots.forEach((slot, idx) => {
-    const amrSlotNo = slotNos[idx]; // Robot에 설정된 slot_no 사용
+  // 인스토커 -> AMR 적재 (인스토커 1칸 ~ 6칸 순서대로)
+  // 각 인스토커 슬롯의 제품은 연마기 번호에 맞는 AMR 슬롯에 적재
+  slots.forEach((slot) => {
+    const mapping = loadingMap.get(slot.mani_pos);
+    if (!mapping) return;
+    const amrSlotNo = mapping.amrSlotNo;
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: 1, // 항상 1
-        CMD_FROM: Number(slot.mani_pos), // 인스토커 mani_pos
-        CMD_TO: amrSlotNo, // AMR slot_no
-        VISION_CHECK: 1, // 인스토커에서 픽업할 때는 1
+        CMD_ID: 1,
+        CMD_FROM: Number(slot.mani_pos),
+        CMD_TO: amrSlotNo,
+        VISION_CHECK: 1,
+        PRODUCT_NO: slot.product_type_value,
+        AMR_SLOT_NO: amrSlotNo,
       }),
     });
+    console.log(`[TaskCreate] ${side}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용)`);
   });
 
-  // AMR -> 연마기 투입 (나중에 넣은 제품부터, 6개 순서쌍)
-  // CMD_ID는 항상 1, CMD_FROM=AMR 슬롯(slot_no), CMD_TO=연마기 mani_pos
-  // slotTargets의 slotIndex(1~6)를 slotNos로 매핑
-  const slotTargetsDesc = [...slotTargets].sort(
-    (a, b) => b.slotIndex - a.slotIndex
-  );
-  slotTargetsDesc.forEach((target) => {
-    const amrSlotNo = slotNos[target.slotIndex - 1]; // slotIndex는 1부터 시작
+  // AMR -> 연마기 투입 (연마기 6→5→4→3→2→1 순서)
+  // 스택 top부터 하역: interleaved 역순으로 (33, 23, 32, 22, 31, 21)
+  const slotTargetsDesc = [...slotTargetsSortedByGrinder].reverse(); // 연마기 6→1
+  slotTargetsDesc.forEach((target, idx) => {
+    // 해당 연마기용 AMR 슬롯 찾기
+    const mappingEntry = Array.from(loadingMap.values()).find(
+      m => m.target === target
+    );
+    if (!mappingEntry) return;
+    const amrSlotNo = mappingEntry.amrSlotNo;
+    
     steps.push({
       type: "NAV",
       payload: JSON.stringify({ dest: target.grinder_station }),
@@ -343,12 +394,15 @@ async function createTaskForSide(side, config, activeTasks) {
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
-        CMD_ID: 1, // 항상 1
-        CMD_FROM: amrSlotNo, // AMR slot_no
-        CMD_TO: Number(target.grinder_mani_pos), // 연마기 mani_pos
-        VISION_CHECK: 0, // 연마기에 놓을 때는 0
+        CMD_ID: 1,
+        CMD_FROM: amrSlotNo,
+        CMD_TO: Number(target.grinder_mani_pos),
+        VISION_CHECK: 0,
+        PRODUCT_NO: target.product_type_value,
+        AMR_SLOT_NO: amrSlotNo,
       }),
     });
+    console.log(`[TaskCreate] ${side}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.grinderPosition}`);
   });
 
   if (robot.home_station) {
@@ -359,7 +413,7 @@ async function createTaskForSide(side, config, activeTasks) {
   }
 
   const tasks = activeTasks || (await getActiveTasks());
-  const newStations = new Set([pickupStation, ...slotTargets.map((t) => t.grinder_station)]);
+  const newStations = new Set([pickupStation, ...slotTargets.map((t) => t.grinder_station), robot.home_station].filter(Boolean));
   const newPlcIds = new Set();
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
     //console.log(`[TaskCreate] ${side}: 기존 태스크와 스테이션/PLC 중복, 생성 스킵`);
@@ -572,6 +626,8 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
         CMD_FROM: Number(info.rowInfo.mani_pos),
         CMD_TO: amrSlotNo,
         VISION_CHECK: 1,
+        PRODUCT_NO: info.productNo, // 제품 번호 (슬롯 적재용)
+        AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (업데이트 대상)
       }),
     });
   }
@@ -622,6 +678,8 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
           CMD_FROM: amrSlotNo,
           CMD_TO: Number(conveyorManiPos),
           VISION_CHECK: 0,
+          PRODUCT_NO: info.productNo, // 제품 번호 (로그용)
+          AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (비우기 대상)
         }),
       });
       steps.push({
@@ -631,11 +689,20 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     }
   }
 
+  // 홈 스테이션으로 복귀
+  if (robot.home_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_station }),
+    });
+  }
+
   // 리소스 중복 체크
   const tasks = activeTasks || (await getActiveTasks());
   const newStations = new Set([
     ...validRequests.map(r => normalizeText(r.item.amr_pos)),
     ...pickupInfos.map(p => p.rowInfo.amr_pos),
+    robot.home_station, // 홈 스테이션도 포함
   ].filter(Boolean));
   
   const newPlcIds = new Set(
