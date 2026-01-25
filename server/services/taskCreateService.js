@@ -692,10 +692,24 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     for (const info of itemsForThisConveyor) {
       const amrSlotNo = slotNos[info.slotIndex];
       
+      // 정지 요청: 투입중=0, 투입완료=0 후 정지요청=1
+      if (conveyorItem.input_in_progress_id) {
+        steps.push({
+          type: "PLC_WRITE",
+          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
+        });
+      }
+      if (conveyorItem.input_done_id) {
+        steps.push({
+          type: "PLC_WRITE",
+          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
+        });
+      }
       steps.push({
         type: "PLC_WRITE",
         payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
       });
+      
       steps.push({
         type: "PLC_READ",
         payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1 }),
@@ -704,10 +718,19 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
         type: "PLC_READ",
         payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1 }),
       });
+      
+      // 투입중: 투입완료=0 후 투입중=1
+      if (conveyorItem.input_done_id) {
+        steps.push({
+          type: "PLC_WRITE",
+          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
+        });
+      }
       steps.push({
         type: "PLC_WRITE",
         payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
       });
+      
       steps.push({
         type: "MANI_WORK",
         payload: JSON.stringify({
@@ -719,6 +742,20 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
           AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (비우기 대상)
         }),
       });
+      
+      // 투입완료: 투입중=0, 정지요청=0 후 투입완료=1
+      if (conveyorItem.input_in_progress_id) {
+        steps.push({
+          type: "PLC_WRITE",
+          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
+        });
+      }
+      if (conveyorItem.stop_request_id) {
+        steps.push({
+          type: "PLC_WRITE",
+          payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 0 }),
+        });
+      }
       steps.push({
         type: "PLC_WRITE",
         payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1 }),
