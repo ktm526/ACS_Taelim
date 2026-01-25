@@ -661,11 +661,29 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
       }),
     });
     
-    // 꺼낸 후: 배출완료 신호 ON
+    // 꺼낸 후: 작업중 신호 OFF, 배출완료 신호 ON
+    if (info.rowInfo.working_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.working_id, PLC_DATA: 0 }),
+      });
+    }
     if (info.rowInfo.unload_done_id) {
       steps.push({
         type: "PLC_WRITE",
         payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 1 }),
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PHASE 1.5: 컨베이어 이동 전 모든 배출완료 신호 리셋
+  // ═══════════════════════════════════════════════════════════════
+  for (const info of pickupInfos) {
+    if (info.rowInfo.unload_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 0 }),
       });
     }
   }

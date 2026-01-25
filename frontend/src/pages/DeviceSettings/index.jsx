@@ -493,6 +493,48 @@ export default function DeviceSettings() {
     return <Tag color="blue">{String(value)}</Tag>;
   };
 
+  // PLC 값 표시 + 리셋(0 쓰기) 버튼
+  const [resettingId, setResettingId] = useState(null);
+  const handlePlcReset = async (plcId) => {
+    if (!plcId) return;
+    setResettingId(plcId);
+    try {
+      const res = await apiClient.post("/api/plc/write", { id: plcId, value: 0 });
+      if (res.data?.success) {
+        message.success(`${plcId} → 0 전송 완료`);
+      } else {
+        message.error(res.data?.message || "전송 실패");
+      }
+    } catch (err) {
+      message.error(err.message || "전송 실패");
+    } finally {
+      setResettingId(null);
+    }
+  };
+
+  const renderPlcValueWithReset = (plcId, value) => {
+    const hasValue = value !== null && value !== undefined && !Number.isNaN(value);
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <Tag color={hasValue ? "blue" : "default"} style={{ margin: 0 }}>
+          {hasValue ? String(value) : "-"}
+        </Tag>
+        {plcId && (
+          <Button
+            size="small"
+            type="text"
+            danger
+            loading={resettingId === plcId}
+            onClick={() => handlePlcReset(plcId)}
+            style={{ padding: "0 4px", fontSize: 10, height: 18, lineHeight: "16px" }}
+          >
+            0
+          </Button>
+        )}
+      </div>
+    );
+  };
+
   const getOutSideLabel = (side) => {
     const prefix = side.startsWith("L") ? "L" : "R";
     const idx = side.slice(1);
@@ -850,10 +892,9 @@ export default function DeviceSettings() {
                     onChange={(e) => handleSideSignalChange(side, "work_available_id", e.target.value)}
                     placeholder="ID"
                   />
-                  {renderValueTag(
-                    instocker.side_signals?.[side]?.work_available_id
-                      ? plcValues?.[instocker.side_signals[side].work_available_id]
-                      : null
+                  {renderPlcValueWithReset(
+                    instocker.side_signals?.[side]?.work_available_id,
+                    plcValues?.[instocker.side_signals?.[side]?.work_available_id]
                   )}
 
                   <span>작업완료</span>
@@ -863,10 +904,9 @@ export default function DeviceSettings() {
                     onChange={(e) => handleSideSignalChange(side, "done_id", e.target.value)}
                     placeholder="ID"
                   />
-                  {renderValueTag(
-                    instocker.side_signals?.[side]?.done_id
-                      ? plcValues?.[instocker.side_signals[side].done_id]
-                      : null
+                  {renderPlcValueWithReset(
+                    instocker.side_signals?.[side]?.done_id,
+                    plcValues?.[instocker.side_signals?.[side]?.done_id]
                   )}
 
                   <span>작업에러</span>
@@ -876,10 +916,9 @@ export default function DeviceSettings() {
                     onChange={(e) => handleSideSignalChange(side, "error_id", e.target.value)}
                     placeholder="ID"
                   />
-                  {renderValueTag(
-                    instocker.side_signals?.[side]?.error_id
-                      ? plcValues?.[instocker.side_signals[side].error_id]
-                      : null
+                  {renderPlcValueWithReset(
+                    instocker.side_signals?.[side]?.error_id,
+                    plcValues?.[instocker.side_signals?.[side]?.error_id]
                   )}
 
                   <span>안전위치</span>
@@ -889,10 +928,9 @@ export default function DeviceSettings() {
                     onChange={(e) => handleSideSignalChange(side, "safe_id", e.target.value)}
                     placeholder="ID"
                   />
-                  {renderValueTag(
-                    instocker.side_signals?.[side]?.safe_id
-                      ? plcValues?.[instocker.side_signals[side].safe_id]
-                      : null
+                  {renderPlcValueWithReset(
+                    instocker.side_signals?.[side]?.safe_id,
+                    plcValues?.[instocker.side_signals?.[side]?.safe_id]
                   )}
                 </div>
 
@@ -1278,6 +1316,7 @@ export default function DeviceSettings() {
                     {OUT_FIELDS.map((field) => {
                       const value = outstocker.sides?.[side]?.rows?.[row]?.[field.key];
                       const isNumber = field.isNumber;
+                      const plcValue = value ? plcValues?.[value] : null;
                       return (
                         <div key={field.key} style={{ display: "flex", gap: 2, alignItems: "center" }}>
                           <Input
@@ -1289,12 +1328,26 @@ export default function DeviceSettings() {
                             style={{ flex: 1 }}
                           />
                           {!isNumber && (
-                            <Tag
-                              color={value && plcValues?.[value] != null ? "blue" : "default"}
-                              style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
-                            >
-                              {value ? plcValues?.[value] ?? "-" : "-"}
-                            </Tag>
+                            <>
+                              <Tag
+                                color={plcValue != null ? "blue" : "default"}
+                                style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
+                              >
+                                {plcValue ?? "-"}
+                              </Tag>
+                              {value && (
+                                <Button
+                                  size="small"
+                                  type="text"
+                                  danger
+                                  loading={resettingId === value}
+                                  onClick={() => handlePlcReset(value)}
+                                  style={{ padding: "0 2px", fontSize: 9, height: 16, lineHeight: "14px", minWidth: 16 }}
+                                >
+                                  0
+                                </Button>
+                              )}
+                            </>
                           )}
                         </div>
                       );
@@ -1387,7 +1440,7 @@ export default function DeviceSettings() {
                         }
                         placeholder="ID"
                       />
-                      {renderValueTag(value ? plcValues?.[value] : null)}
+                      {renderPlcValueWithReset(value, plcValues?.[value])}
                     </React.Fragment>
                   );
                 })}

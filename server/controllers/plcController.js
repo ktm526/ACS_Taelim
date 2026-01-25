@@ -180,6 +180,64 @@ exports.resetTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+// PLC 쓰기 (범용)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/plc/write
+ * - body: { id: "6000.1" or "6030", value: 0 or 1 }
+ * - bit 형식(6000.1): 해당 비트만 변경
+ * - word 형식(6030): 전체 워드 값 변경
+ */
+exports.writePlc = async (req, res) => {
+  const writeClient = new ModbusRTU();
+  writeClient.setTimeout(3000);
+  
+  try {
+    const { id, value } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: "id 필요" });
+    }
+    
+    const parsed = parseId(id);
+    if (!parsed) {
+      return res.status(400).json({ success: false, message: `잘못된 ID 형식: ${id}` });
+    }
+    
+    const writeValue = Number(value) || 0;
+    
+    await writeClient.connectTCP(HOST, { port: PORT });
+    writeClient.setID(UNIT_ID);
+    
+    if (parsed.type === "bit") {
+      // 비트 쓰기: 현재 워드 읽고, 해당 비트만 변경 후 쓰기
+      const currentData = await writeClient.readHoldingRegisters(parsed.wordAddr, 1);
+      let wordValue = currentData.data[0];
+      
+      if (writeValue) {
+        wordValue |= (1 << parsed.bitIndex); // 비트 ON
+      } else {
+        wordValue &= ~(1 << parsed.bitIndex); // 비트 OFF
+      }
+      
+      await writeClient.writeRegister(parsed.wordAddr, wordValue);
+      console.log(`[PLC.write] ${id} = ${writeValue} (word ${parsed.wordAddr} → ${wordValue})`);
+    } else {
+      // 워드 쓰기
+      await writeClient.writeRegister(parsed.wordAddr, writeValue);
+      console.log(`[PLC.write] ${id} = ${writeValue}`);
+    }
+    
+    writeClient.close();
+    return res.json({ success: true, id, value: writeValue });
+  } catch (e) {
+    console.error("[PLC.write]", e);
+    try { writeClient.close(); } catch (_) {}
+    return res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
 // TCP 테스트 관련
 // ─────────────────────────────────────────────────────────────
 const tcpTest = require("../services/tcpTestService");
