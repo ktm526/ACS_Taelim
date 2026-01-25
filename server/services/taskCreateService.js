@@ -465,8 +465,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   
   if (!conveyorRequests.length) return;
   
-  const totalQty = conveyorRequests.reduce((sum, r) => sum + r.qty, 0);
-  console.log(`[TaskCreate] 컨베이어 통합 태스크: ${conveyorRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
+  console.log(`[TaskCreate] 컨베이어 요청: ${conveyorRequests.map(r => `C${r.item.index}(제품${r.productNo}, ${r.qty}개)`).join(' + ')}`);
   
   // 로봇 확인
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
@@ -489,6 +488,43 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     .map((s) => (typeof s === "object" ? s.slot_no : s))
     .filter((n) => n != null)
     .sort((a, b) => a - b);
+
+  // ═══════════════════════════════════════════════════════════════
+  // 각 컨베이어별로 공지그 확인 → 충족 가능한 것만 필터링
+  // ═══════════════════════════════════════════════════════════════
+  const validRequests = [];
+  
+  for (const req of conveyorRequests) {
+    // 컨베이어 설정 확인
+    const amrPos = normalizeText(req.item.amr_pos);
+    const maniPos = normalizeText(req.item.mani_pos);
+    if (!amrPos) {
+      console.warn(`[TaskCreate] conveyor${req.item.index}: AMR pos 없음 → 스킵`);
+      continue;
+    }
+    if (!maniPos) {
+      console.warn(`[TaskCreate] conveyor${req.item.index}: Mani Pos 없음 → 스킵`);
+      continue;
+    }
+    
+    // 아웃스토커 공지그 확인
+    const rows = getAvailableOutstockerRows(config.outstockerSides, req.productNo, req.qty);
+    if (rows.length < req.qty) {
+      console.log(`[TaskCreate] 컨베이어${req.item.index}: 제품${req.productNo} 공지그 부족 (${rows.length}/${req.qty}) → 스킵`);
+      continue;
+    }
+    
+    validRequests.push({ ...req, rows });
+  }
+  
+  if (!validRequests.length) {
+    console.log(`[TaskCreate] 컨베이어 통합: 처리 가능한 요청 없음`);
+    return;
+  }
+  
+  // 처리 가능한 요청만으로 진행
+  const totalQty = validRequests.reduce((sum, r) => sum + r.qty, 0);
+  console.log(`[TaskCreate] 컨베이어 통합: 처리 가능 ${validRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
   
   if (slotNos.length < totalQty) {
     console.warn(`[TaskCreate] 컨베이어 통합: AMR 슬롯 부족 (필요: ${totalQty}, 보유: ${slotNos.length})`);
@@ -496,19 +532,13 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   }
 
   // 각 컨베이어별로 필요한 아웃스토커 row 수집
-  const pickupInfos = []; // { rowInfo, conveyorIdx, slotIndex }
+  const pickupInfos = []; // { rowInfo, conveyorItem, productNo, slotIndex }
   let slotIndex = 0;
   
-  for (const req of conveyorRequests) {
-    const rows = getAvailableOutstockerRows(config.outstockerSides, req.productNo, req.qty);
-    if (rows.length < req.qty) {
-      console.log(`[TaskCreate] 컨베이어${req.item.index}: 제품${req.productNo} 공지그 수량 부족 (${rows.length}/${req.qty})`);
-      return;
-    }
-    
+  for (const req of validRequests) {
     for (let i = 0; i < req.qty; i++) {
       pickupInfos.push({
-        rowInfo: rows[i],
+        rowInfo: req.rows[i],
         conveyorItem: req.item,
         productNo: req.productNo,
         slotIndex: slotIndex,
@@ -521,20 +551,6 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   pickupInfos.forEach((p, i) => {
     console.log(`  [${i+1}] ${p.rowInfo.side}-${p.rowInfo.row} → C${p.conveyorItem.index}용 (제품${p.productNo})`);
   });
-
-  // 컨베이어 설정 확인
-  for (const req of conveyorRequests) {
-    const amrPos = normalizeText(req.item.amr_pos);
-    const maniPos = normalizeText(req.item.mani_pos);
-    if (!amrPos) {
-      console.warn(`[TaskCreate] conveyor${req.item.index}: AMR pos 없음`);
-      return;
-    }
-    if (!maniPos) {
-      console.warn(`[TaskCreate] conveyor${req.item.index}: Mani Pos 없음`);
-      return;
-    }
-  }
 
   const steps = [];
   
@@ -563,7 +579,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   // ═══════════════════════════════════════════════════════════════
   // PHASE 2: 각 컨베이어에 순차적으로 투입
   // ═══════════════════════════════════════════════════════════════
-  for (const req of conveyorRequests) {
+  for (const req of validRequests) {
     const conveyorItem = req.item;
     const amrPos = normalizeText(conveyorItem.amr_pos);
     const conveyorManiPos = normalizeText(conveyorItem.mani_pos);
@@ -618,12 +634,12 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   // 리소스 중복 체크
   const tasks = activeTasks || (await getActiveTasks());
   const newStations = new Set([
-    ...conveyorRequests.map(r => normalizeText(r.item.amr_pos)),
+    ...validRequests.map(r => normalizeText(r.item.amr_pos)),
     ...pickupInfos.map(p => p.rowInfo.amr_pos),
   ].filter(Boolean));
   
   const newPlcIds = new Set(
-    conveyorRequests.flatMap(r => [
+    validRequests.flatMap(r => [
       r.item.stop_request_id,
       r.item.stop_id,
       r.item.input_ready_id,
@@ -653,14 +669,14 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  const summary = conveyorRequests.map(r => `C${r.item.index}:${r.qty}`).join('+');
+  const summary = validRequests.map(r => `C${r.item.index}:${r.qty}`).join('+');
   console.log(
     `[TaskCreate] 컨베이어 통합(${summary}): Task#${task.id} 발행 (${steps.length} steps)`
   );
   await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어 통합 태스크 (${summary}, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { conveyors: conveyorRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length },
+    payload: { conveyors: validRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length },
   });
 }
 
