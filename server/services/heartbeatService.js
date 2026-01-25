@@ -6,7 +6,7 @@
  */
 
 const ModbusRTU = require("modbus-serial");
-const { Robot } = require("../models");
+const Robot = require("../models/Robot");
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
