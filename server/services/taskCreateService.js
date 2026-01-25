@@ -599,16 +599,18 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   }
 
   // 각 컨베이어별로 필요한 아웃스토커 row 수집
-  const pickupInfos = []; // { rowInfo, conveyorItem, productNo, slotIndex }
+  const pickupInfos = []; // { rowInfo, conveyorItem, productNo, slotIndex, amrSlotNo }
   let slotIndex = 0;
   
   for (const req of validRequests) {
     for (let i = 0; i < req.qty; i++) {
+      const amrSlotNo = slotNos[slotIndex];
       pickupInfos.push({
         rowInfo: req.rows[i],
         conveyorItem: req.item,
         productNo: req.productNo,
         slotIndex: slotIndex,
+        amrSlotNo: amrSlotNo, // 실제 할당된 AMR 슬롯 번호
       });
       slotIndex++;
     }
@@ -616,7 +618,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   
   console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 픽업 ${pickupInfos.length}개 예정`);
   pickupInfos.forEach((p, i) => {
-    console.log(`  [${i+1}] ${p.rowInfo.side}-${p.rowInfo.row} → C${p.conveyorItem.index}용 (제품${p.productNo})`);
+    console.log(`  [${i+1}] ${p.rowInfo.side}-${p.rowInfo.row} → AMR슬롯${p.amrSlotNo} → C${p.conveyorItem.index}용 (제품${p.productNo})`);
   });
 
   const steps = [];
@@ -626,9 +628,8 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   // VISION_CHECK: 새로운 위치(amr_pos)로 이동할 때마다 첫 픽업은 1, 같은 위치에서 연속 픽업은 0
   // ═══════════════════════════════════════════════════════════════
   let lastOutstockerAmrPos = null;
-  for (let idx = 0; idx < pickupInfos.length; idx++) {
-    const info = pickupInfos[idx];
-    const amrSlotNo = slotNos[idx];
+  for (const info of pickupInfos) {
+    const amrSlotNo = info.amrSlotNo;
     const currentAmrPos = info.rowInfo.amr_pos;
     
     // 새로운 위치로 이동하면 VISION_CHECK = 1
@@ -670,97 +671,108 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // PHASE 2: 각 컨베이어에 순차적으로 투입
+  // PHASE 2: 스택 하역 순서에 맞게 컨베이어에 투입
+  // 하역 순서: 23, 22, 21, 33, 32, 31 (스택1 위→아래, 그 다음 스택2 위→아래)
   // ═══════════════════════════════════════════════════════════════
-  for (const req of validRequests) {
-    const conveyorItem = req.item;
+  
+  // 스택 하역 순서로 정렬: 스택1(20번대) 먼저 내림차순, 그 다음 스택2(30번대) 내림차순
+  const sortedForUnload = [...pickupInfos].sort((a, b) => {
+    const aStack = a.amrSlotNo < 30 ? 1 : 2;
+    const bStack = b.amrSlotNo < 30 ? 1 : 2;
+    if (aStack !== bStack) return aStack - bStack; // 스택1 먼저
+    return b.amrSlotNo - a.amrSlotNo; // 같은 스택 내에서 내림차순 (위부터)
+  });
+  
+  console.log(`[TaskCreate] 컨베이어 하역 순서:`);
+  sortedForUnload.forEach((p, i) => {
+    console.log(`  [${i+1}] AMR슬롯${p.amrSlotNo} → C${p.conveyorItem.index} (제품${p.productNo})`);
+  });
+  
+  // 정렬된 순서대로 하역 (각 아이템의 컨베이어로 이동 후 하역)
+  let lastConveyorAmrPos = null;
+  for (const info of sortedForUnload) {
+    const conveyorItem = info.conveyorItem;
     const amrPos = normalizeText(conveyorItem.amr_pos);
     const conveyorManiPos = normalizeText(conveyorItem.mani_pos);
+    const amrSlotNo = info.amrSlotNo;
     
-    // 해당 컨베이어로 이동
-    steps.push({
-      type: "NAV",
-      payload: JSON.stringify({ dest: amrPos }),
-    });
+    // 이전과 다른 컨베이어면 이동
+    if (amrPos !== lastConveyorAmrPos) {
+      steps.push({
+        type: "NAV",
+        payload: JSON.stringify({ dest: amrPos }),
+      });
+      lastConveyorAmrPos = amrPos;
+    }
     
-    // 해당 컨베이어에 투입할 지그들 찾기
-    const itemsForThisConveyor = pickupInfos.filter(
-      p => p.conveyorItem.index === conveyorItem.index
-    );
-    
-    // 각 지그 투입 시퀀스
-    for (const info of itemsForThisConveyor) {
-      const amrSlotNo = slotNos[info.slotIndex];
-      
-      // 정지 요청: 투입중=0, 투입완료=0 후 정지요청=1
-      if (conveyorItem.input_in_progress_id) {
-        steps.push({
-          type: "PLC_WRITE",
-          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
-        });
-      }
-      if (conveyorItem.input_done_id) {
-        steps.push({
-          type: "PLC_WRITE",
-          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
-        });
-      }
+    // 정지 요청: 투입중=0, 투입완료=0 후 정지요청=1
+    if (conveyorItem.input_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
-      });
-      
-      steps.push({
-        type: "PLC_READ",
-        payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1 }),
-      });
-      steps.push({
-        type: "PLC_READ",
-        payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1 }),
-      });
-      
-      // 투입중: 투입완료=0 후 투입중=1
-      if (conveyorItem.input_done_id) {
-        steps.push({
-          type: "PLC_WRITE",
-          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
-        });
-      }
-      steps.push({
-        type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
-      });
-      
-      steps.push({
-        type: "MANI_WORK",
-        payload: JSON.stringify({
-          CMD_ID: 1,
-          CMD_FROM: amrSlotNo,
-          CMD_TO: Number(conveyorManiPos),
-          VISION_CHECK: 0,
-          PRODUCT_NO: info.productNo, // 제품 번호 (로그용)
-          AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (비우기 대상)
-        }),
-      });
-      
-      // 투입완료: 투입중=0, 정지요청=0 후 투입완료=1
-      if (conveyorItem.input_in_progress_id) {
-        steps.push({
-          type: "PLC_WRITE",
-          payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
-        });
-      }
-      if (conveyorItem.stop_request_id) {
-        steps.push({
-          type: "PLC_WRITE",
-          payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 0 }),
-        });
-      }
-      steps.push({
-        type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
       });
     }
+    if (conveyorItem.input_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
+      });
+    }
+    steps.push({
+      type: "PLC_WRITE",
+      payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
+    });
+    
+    steps.push({
+      type: "PLC_READ",
+      payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1 }),
+    });
+    steps.push({
+      type: "PLC_READ",
+      payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1 }),
+    });
+    
+    // 투입중: 투입완료=0 후 투입중=1
+    if (conveyorItem.input_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
+      });
+    }
+    steps.push({
+      type: "PLC_WRITE",
+      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
+    });
+    
+    steps.push({
+      type: "MANI_WORK",
+      payload: JSON.stringify({
+        CMD_ID: 1,
+        CMD_FROM: amrSlotNo,
+        CMD_TO: Number(conveyorManiPos),
+        VISION_CHECK: 0,
+        PRODUCT_NO: info.productNo, // 제품 번호 (로그용)
+        AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (비우기 대상)
+      }),
+    });
+    
+    // 투입완료: 투입중=0, 정지요청=0 후 투입완료=1
+    if (conveyorItem.input_in_progress_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
+      });
+    }
+    if (conveyorItem.stop_request_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 0 }),
+      });
+    }
+    steps.push({
+      type: "PLC_WRITE",
+      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1 }),
+    });
   }
 
   // 홈 스테이션으로 복귀
