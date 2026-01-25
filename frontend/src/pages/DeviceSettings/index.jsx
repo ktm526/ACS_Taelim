@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Card, Input, Button, Spin, message, Tag, Select, Collapse, Divider } from "antd";
+import { Card, Input, Button, Spin, message, Tag, Select, Collapse, Divider, Popover, InputNumber } from "antd";
 import { CaretRightOutlined } from "@ant-design/icons";
 import { useAtomValue } from "jotai";
 import { useApiClient } from "@/hooks/useApiClient";
@@ -493,45 +493,103 @@ export default function DeviceSettings() {
     return <Tag color="blue">{String(value)}</Tag>;
   };
 
-  // PLC 값 표시 + 리셋(0 쓰기) 버튼
-  const [resettingId, setResettingId] = useState(null);
-  const handlePlcReset = async (plcId) => {
+  // PLC 값 쓰기
+  const [writingId, setWritingId] = useState(null);
+  const [writeValue, setWriteValue] = useState(0);
+  const [popoverOpen, setPopoverOpen] = useState({});
+
+  const handlePlcWrite = async (plcId, val) => {
     if (!plcId) return;
-    setResettingId(plcId);
+    setWritingId(plcId);
     try {
-      const res = await apiClient.post("/api/plc/write", { id: plcId, value: 0 });
+      const res = await apiClient.post("/api/plc/write", { id: plcId, value: val });
       if (res.data?.success) {
-        message.success(`${plcId} → 0 전송 완료`);
+        message.success(`${plcId} → ${val} 전송 완료`);
+        setPopoverOpen((prev) => ({ ...prev, [plcId]: false }));
       } else {
         message.error(res.data?.message || "전송 실패");
       }
     } catch (err) {
       message.error(err.message || "전송 실패");
     } finally {
-      setResettingId(null);
+      setWritingId(null);
     }
+  };
+
+  const PlcValueEditor = ({ plcId, currentValue }) => {
+    const [localValue, setLocalValue] = useState(currentValue ?? 0);
+    
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 4 }}>
+        <div style={{ fontSize: 12, color: "#666" }}>
+          <strong>{plcId}</strong> 값 쓰기
+        </div>
+        <InputNumber
+          size="small"
+          value={localValue}
+          onChange={(v) => setLocalValue(v ?? 0)}
+          style={{ width: 100 }}
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 4 }}>
+          <Button
+            size="small"
+            onClick={() => {
+              setLocalValue(0);
+              handlePlcWrite(plcId, 0);
+            }}
+            loading={writingId === plcId}
+          >
+            0
+          </Button>
+          <Button
+            size="small"
+            onClick={() => {
+              setLocalValue(1);
+              handlePlcWrite(plcId, 1);
+            }}
+            loading={writingId === plcId}
+          >
+            1
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            onClick={() => handlePlcWrite(plcId, localValue)}
+            loading={writingId === plcId}
+          >
+            전송
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   const renderPlcValueWithReset = (plcId, value) => {
     const hasValue = value !== null && value !== undefined && !Number.isNaN(value);
+    
+    if (!plcId) {
+      return (
+        <Tag color="default" style={{ margin: 0 }}>
+          -
+        </Tag>
+      );
+    }
+    
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-        <Tag color={hasValue ? "blue" : "default"} style={{ margin: 0 }}>
+      <Popover
+        content={<PlcValueEditor plcId={plcId} currentValue={value} />}
+        trigger="click"
+        open={popoverOpen[plcId]}
+        onOpenChange={(open) => setPopoverOpen((prev) => ({ ...prev, [plcId]: open }))}
+      >
+        <Tag
+          color={hasValue ? "blue" : "default"}
+          style={{ margin: 0, cursor: "pointer" }}
+        >
           {hasValue ? String(value) : "-"}
         </Tag>
-        {plcId && (
-          <Button
-            size="small"
-            type="text"
-            danger
-            loading={resettingId === plcId}
-            onClick={() => handlePlcReset(plcId)}
-            style={{ padding: "0 4px", fontSize: 10, height: 18, lineHeight: "16px" }}
-          >
-            0
-          </Button>
-        )}
-      </div>
+      </Popover>
     );
   };
 
@@ -1327,28 +1385,7 @@ export default function DeviceSettings() {
                             placeholder={isNumber ? "숫자" : "ID"}
                             style={{ flex: 1 }}
                           />
-                          {!isNumber && (
-                            <>
-                              <Tag
-                                color={plcValue != null ? "blue" : "default"}
-                                style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
-                              >
-                                {plcValue ?? "-"}
-                              </Tag>
-                              {value && (
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  danger
-                                  loading={resettingId === value}
-                                  onClick={() => handlePlcReset(value)}
-                                  style={{ padding: "0 2px", fontSize: 9, height: 16, lineHeight: "14px", minWidth: 16 }}
-                                >
-                                  0
-                                </Button>
-                              )}
-                            </>
-                          )}
+                          {!isNumber && renderPlcValueWithReset(value, plcValue)}
                         </div>
                       );
                     })}
