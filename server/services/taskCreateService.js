@@ -358,22 +358,26 @@ async function createTaskForSide(side, config, activeTasks) {
 
   // 인스토커 -> AMR 적재 (인스토커 1칸 ~ 6칸 순서대로)
   // 각 인스토커 슬롯의 제품은 연마기 번호에 맞는 AMR 슬롯에 적재
+  // VISION_CHECK: 첫 번째 픽업만 1, 이후는 0
+  let instockerPickupCount = 0;
   slots.forEach((slot) => {
     const mapping = loadingMap.get(slot.mani_pos);
     if (!mapping) return;
     const amrSlotNo = mapping.amrSlotNo;
+    const visionCheck = instockerPickupCount === 0 ? 1 : 0;
+    instockerPickupCount++;
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1,
         CMD_FROM: Number(slot.mani_pos),
         CMD_TO: amrSlotNo,
-        VISION_CHECK: 1,
+        VISION_CHECK: visionCheck,
         PRODUCT_NO: slot.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
       }),
     });
-    console.log(`[TaskCreate] ${side}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용)`);
+    console.log(`[TaskCreate] ${side}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
   });
 
   // AMR -> 연마기 투입 (연마기 6→5→4→3→2→1 순서)
@@ -619,14 +623,21 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   
   // ═══════════════════════════════════════════════════════════════
   // PHASE 1: 아웃스토커에서 모든 지그 픽업
+  // VISION_CHECK: 새로운 위치(amr_pos)로 이동할 때마다 첫 픽업은 1, 같은 위치에서 연속 픽업은 0
   // ═══════════════════════════════════════════════════════════════
+  let lastOutstockerAmrPos = null;
   for (let idx = 0; idx < pickupInfos.length; idx++) {
     const info = pickupInfos[idx];
     const amrSlotNo = slotNos[idx];
+    const currentAmrPos = info.rowInfo.amr_pos;
+    
+    // 새로운 위치로 이동하면 VISION_CHECK = 1
+    const visionCheck = (currentAmrPos !== lastOutstockerAmrPos) ? 1 : 0;
+    lastOutstockerAmrPos = currentAmrPos;
     
     steps.push({
       type: "NAV",
-      payload: JSON.stringify({ dest: info.rowInfo.amr_pos }),
+      payload: JSON.stringify({ dest: currentAmrPos }),
     });
     
     // 꺼내기 직전: 작업중 신호 ON
@@ -643,7 +654,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
         CMD_ID: 1,
         CMD_FROM: Number(info.rowInfo.mani_pos),
         CMD_TO: amrSlotNo,
-        VISION_CHECK: 1,
+        VISION_CHECK: visionCheck,
         PRODUCT_NO: info.productNo, // 제품 번호 (슬롯 적재용)
         AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (업데이트 대상)
       }),
