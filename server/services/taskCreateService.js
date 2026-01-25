@@ -453,12 +453,21 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
       const jigState = resolvePlcValue(rowData.jig_state_id);
       const modelNo = resolvePlcValue(rowData.model_no_id);
       const maniPos = normalizeText(rowData.mani_pos);
+      const workingId = normalizeText(rowData.working_id);
+      const unloadDoneId = normalizeText(rowData.unload_done_id);
       
       // mani_pos가 없으면 사용할 수 없으므로 스킵
       if (!maniPos) continue;
       
       if (jigState === 1 && modelNo !== null && Number(modelNo) === Number(productNo)) {
-        rows.push({ side, row, amr_pos: amrPos, mani_pos: maniPos });
+        rows.push({ 
+          side, 
+          row, 
+          amr_pos: amrPos, 
+          mani_pos: maniPos,
+          working_id: workingId,
+          unload_done_id: unloadDoneId,
+        });
         if (rows.length >= qty) return rows;
       }
     }
@@ -619,6 +628,15 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
       type: "NAV",
       payload: JSON.stringify({ dest: info.rowInfo.amr_pos }),
     });
+    
+    // 꺼내기 직전: 작업중 신호 ON
+    if (info.rowInfo.working_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.working_id, PLC_DATA: 1 }),
+      });
+    }
+    
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
@@ -630,6 +648,14 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
         AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (업데이트 대상)
       }),
     });
+    
+    // 꺼낸 후: 배출완료 신호 ON
+    if (info.rowInfo.unload_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 1 }),
+      });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -705,17 +731,21 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     robot.home_station, // 홈 스테이션도 포함
   ].filter(Boolean));
   
-  const newPlcIds = new Set(
-    validRequests.flatMap(r => [
+  const newPlcIds = new Set([
+    // 컨베이어 신호
+    ...validRequests.flatMap(r => [
       r.item.stop_request_id,
       r.item.stop_id,
       r.item.input_ready_id,
       r.item.input_in_progress_id,
       r.item.input_done_id,
-    ])
-      .map(normalizeText)
-      .filter(Boolean)
-  );
+    ]),
+    // 아웃스토커 신호 (작업중, 배출완료)
+    ...pickupInfos.flatMap(p => [
+      p.rowInfo.working_id,
+      p.rowInfo.unload_done_id,
+    ]),
+  ].map(normalizeText).filter(Boolean));
   
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
     console.log(`[TaskCreate] 컨베이어 통합: 기존 태스크와 중복, 생성 스킵`);

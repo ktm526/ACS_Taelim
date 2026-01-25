@@ -15,6 +15,9 @@ const OUT_FIELDS = [
   { key: "load_ready_id", label: "적재 가능" },
   { key: "jig_state_id", label: "공지그 상태" },
   { key: "model_no_id", label: "모델 번호" },
+  { key: "working_id", label: "작업중" },
+  { key: "load_done_id", label: "적재완료" },
+  { key: "unload_done_id", label: "배출완료" },
   { key: "mani_pos", label: "Mani Pos", isNumber: true },
 ];
 const CONVEYOR_INDEXES = [1, 2];
@@ -92,6 +95,9 @@ function createDefaultOutStocker() {
         load_ready_id: null,
         jig_state_id: null,
         model_no_id: null,
+        working_id: null,
+        load_done_id: null,
+        unload_done_id: null,
         mani_pos: null,
       };
     });

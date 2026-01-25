@@ -98,6 +98,9 @@ function buildDefaultOutStocker() {
         load_ready_id: null,
         jig_state_id: null,
         model_no_id: null,
+        working_id: null,
+        load_done_id: null,
+        unload_done_id: null,
         mani_pos: null,
       };
     }
@@ -199,6 +202,9 @@ function normalizeOutStocker(input) {
         load_ready_id: normalizeText(sourceRow.load_ready_id),
         jig_state_id: normalizeText(sourceRow.jig_state_id),
         model_no_id: normalizeText(sourceRow.model_no_id),
+        working_id: normalizeText(sourceRow.working_id),
+        load_done_id: normalizeText(sourceRow.load_done_id),
+        unload_done_id: normalizeText(sourceRow.unload_done_id),
         mani_pos: normalizeText(sourceRow.mani_pos),
       };
     }
