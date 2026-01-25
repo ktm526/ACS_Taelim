@@ -1,12 +1,11 @@
 /**
  * heartbeatService
  * - PLC에 주기적으로 heartbeat 신호 전송
- * - 1. 5000.1 레지스터에 항상 1 값 (heartbeat)
- * - 2. 로봇 상태 확인 후 5000.0 레지스터에 상태값 (정상:1, 비정상:0)
+ * - 5000.0: 1초 주기로 0, 1 번갈아 토글
+ * - 5000.1: 항상 1
  */
 
 const ModbusRTU = require("modbus-serial");
-const Robot = require("../models/Robot");
 
 const HOST = process.env.MODBUS_HOST || "192.168.3.31";
 const PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
@@ -21,12 +20,13 @@ client.setTimeout(2000);
 let heartbeatTimer = null;
 let connecting = false;
 let inFlight = false;
+let toggleBit = 0; // 0, 1 토글용
 
 const state = {
   connected: false,
   lastWriteAt: null,
   lastError: null,
-  robotStatusOk: true, // 로봇 상태 정상 여부
+  currentValue: 0,
 };
 
 /**
@@ -58,53 +58,13 @@ async function ensureConnected() {
 }
 
 /**
- * 로봇 상태 확인
- * - 연결 끊김: status가 '미연결', null, undefined
- * - 에러 상태: status가 '오류', '비상정지'
- * @returns {boolean} 모든 로봇이 정상이면 true, 하나라도 비정상이면 false
- */
-async function checkRobotStatus() {
-  try {
-    const robots = await Robot.findAll();
-    
-    if (robots.length === 0) {
-      // 로봇이 없으면 정상 처리
-      return true;
-    }
-
-    const errorStatuses = ["미연결", "오류", "비상정지"];
-    
-    for (const robot of robots) {
-      const status = robot.status;
-      
-      // status가 null, undefined, 빈 문자열이면 비정상
-      if (!status) {
-        console.log(`[Heartbeat] 로봇 ${robot.name || robot.id}: 상태 없음 (비정상)`);
-        return false;
-      }
-      
-      // 에러 상태면 비정상
-      if (errorStatuses.includes(status)) {
-        console.log(`[Heartbeat] 로봇 ${robot.name || robot.id}: ${status} (비정상)`);
-        return false;
-      }
-    }
-    
-    return true;
-  } catch (err) {
-    console.error(`[Heartbeat] 로봇 상태 확인 실패: ${err.message}`);
-    return false; // DB 조회 실패시 안전을 위해 비정상 처리
-  }
-}
-
-/**
  * Heartbeat 레지스터 쓰기
- * - bit 0: 로봇 상태 (1=정상, 0=비정상)
- * - bit 1: heartbeat (항상 1)
+ * - bit 0: 0, 1 토글 (1초 주기)
+ * - bit 1: 항상 1
  * 
  * 레지스터 값:
- * - 정상: 0b11 = 3
- * - 비정상: 0b10 = 2
+ * - 토글 0: 0b10 = 2
+ * - 토글 1: 0b11 = 3
  */
 async function writeHeartbeat() {
   if (inFlight) return;
@@ -117,13 +77,9 @@ async function writeHeartbeat() {
       return;
     }
 
-    // 로봇 상태 확인
-    const robotOk = await checkRobotStatus();
-    state.robotStatusOk = robotOk;
-
-    // bit 1 = 1 (heartbeat), bit 0 = robotOk ? 1 : 0
-    const bit0 = robotOk ? 1 : 0;
-    const bit1 = 1; // 항상 1
+    // bit 0 = 토글 (0 또는 1), bit 1 = 항상 1
+    const bit0 = toggleBit;
+    const bit1 = 1;
     const registerValue = (bit1 << 1) | bit0;
 
     // 레지스터에 쓰기
@@ -131,10 +87,10 @@ async function writeHeartbeat() {
     
     state.lastWriteAt = new Date().toISOString();
     state.lastError = null;
+    state.currentValue = registerValue;
 
-    // 상태 변경시에만 로그 출력
-    const statusLabel = robotOk ? "정상" : "비정상";
-    // console.log(`[Heartbeat] 5000 레지스터 = ${registerValue} (0b${registerValue.toString(2).padStart(2, '0')}) - 로봇: ${statusLabel}`);
+    // 토글
+    toggleBit = toggleBit === 0 ? 1 : 0;
 
   } catch (err) {
     state.lastError = err.message;
@@ -199,6 +155,7 @@ function getState() {
   return {
     ...state,
     running: heartbeatTimer !== null,
+    toggleBit,
   };
 }
 
