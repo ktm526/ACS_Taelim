@@ -122,6 +122,9 @@ app.use(express.static(path.join(__dirname, 'dist')));
     require('./services/taskCreateService');
     console.log('Loading taskExecutorService...');
     require('./services/taskExecutorService');
+    console.log('Loading heartbeatService...');
+    const heartbeatService = require('./services/heartbeatService');
+    heartbeatService.start();
     // dispatcher/taskExecutor/robotJack/robotMotion/robotMap 기능은 제거됨
 
     /* 3) React Router 지원을 위한 catch-all 라우트 ─── */
