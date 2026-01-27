@@ -224,6 +224,10 @@ function buildAvailableGrinderPositions(grinders) {
         mani_pos: maniPos,
         grinderIndex: grinder?.index ?? gIdx + 1,
         position: pos,
+        // 연마기 신호 ID들
+        safe_pos_id: normalizeText(position.safe_pos_id),
+        input_in_progress_id: normalizeText(position.input_in_progress_id),
+        input_done_id: normalizeText(position.input_done_id),
       });
       byProduct.set(productKey, list);
     });
@@ -281,6 +285,10 @@ async function createTaskForSide(side, config, activeTasks) {
       grinder_mani_pos: next.mani_pos,
       grinderIndex: next.grinderIndex, // 연마기 번호 추가
       grinderPosition: next.position,
+      // 연마기 신호 ID들
+      safe_pos_id: next.safe_pos_id,
+      input_in_progress_id: next.input_in_progress_id,
+      input_done_id: next.input_done_id,
     });
     availableByProduct.set(slot.product_type_id, list);
     console.log(`[TaskCreate] ${side}: 슬롯 ${slot.key}(제품${productKey}) → 연마기 ${next.grinderIndex}-${next.position}`);
@@ -391,10 +399,35 @@ async function createTaskForSide(side, config, activeTasks) {
     if (!mappingEntry) return;
     const amrSlotNo = mappingEntry.amrSlotNo;
     
+    // 1. 연마기 위치로 이동
     steps.push({
       type: "NAV",
       payload: JSON.stringify({ dest: target.grinder_station }),
     });
+    
+    // 2. 도착 후 안전위치 = 0
+    if (target.safe_pos_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.safe_pos_id, PLC_DATA: 0 }),
+      });
+    }
+    
+    // 3. 투입 작업 전: 투입중 = 1, 투입완료 = 0
+    if (target.input_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 0 }),
+      });
+    }
+    if (target.input_in_progress_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 1 }),
+      });
+    }
+    
+    // 4. MANI_WORK (투입)
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
@@ -406,6 +439,41 @@ async function createTaskForSide(side, config, activeTasks) {
         AMR_SLOT_NO: amrSlotNo,
       }),
     });
+    
+    // 5. 투입 완료 후: 투입중 = 0, 투입완료 = 1
+    if (target.input_in_progress_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 0 }),
+      });
+    }
+    if (target.input_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 1 }),
+      });
+    }
+    
+    // 6. 다른 위치로 이동 전: 안전위치 = 1, 투입완료 = 0, 투입중 = 0
+    if (target.input_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 0 }),
+      });
+    }
+    if (target.input_in_progress_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 0 }),
+      });
+    }
+    if (target.safe_pos_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: target.safe_pos_id, PLC_DATA: 1 }),
+      });
+    }
+    
     console.log(`[TaskCreate] ${side}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.grinderPosition}`);
   });
 
@@ -418,7 +486,13 @@ async function createTaskForSide(side, config, activeTasks) {
 
   const tasks = activeTasks || (await getActiveTasks());
   const newStations = new Set([pickupStation, ...slotTargets.map((t) => t.grinder_station), robot.home_station].filter(Boolean));
-  const newPlcIds = new Set();
+  const newPlcIds = new Set(
+    slotTargets.flatMap((t) => [
+      t.safe_pos_id,
+      t.input_in_progress_id,
+      t.input_done_id,
+    ]).filter(Boolean)
+  );
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
     //console.log(`[TaskCreate] ${side}: 기존 태스크와 스테이션/PLC 중복, 생성 스킵`);
     return;
