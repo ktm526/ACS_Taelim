@@ -12,6 +12,7 @@ const DeviceInStocker = require("../models/DeviceInStocker");
 const DeviceGrinder = require("../models/DeviceGrinder");
 const DeviceOutStocker = require("../models/DeviceOutStocker");
 const DeviceConveyor = require("../models/DeviceConveyor");
+const Settings = require("../models/Settings");
 const Robot = require("../models/Robot");
 const { Task, TaskStep, TaskLog } = require("../models");
 
@@ -82,6 +83,7 @@ let configCache = null;
 let configFetchedAt = 0;
 let checkTimer = null;
 let lastStatusLogTime = 0;
+let grinderOutputLock = false;
 
 function safeParse(raw, fallback) {
   if (raw == null) return fallback;
@@ -97,6 +99,10 @@ function normalizeText(value) {
   if (value == null) return null;
   const text = String(value).trim();
   return text.length ? text : null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolvePlcValue(id) {
@@ -169,11 +175,12 @@ async function loadConfig() {
   const now = Date.now();
   if (configCache && now - configFetchedAt < CONFIG_TTL_MS) return configCache;
 
-  const [instockerRow, grinderRow, outstockerRow, conveyorRow] = await Promise.all([
+  const [instockerRow, grinderRow, outstockerRow, conveyorRow, settingsRow] = await Promise.all([
     DeviceInStocker.findByPk(1),
     DeviceGrinder.findByPk(1),
     DeviceOutStocker.findByPk(1),
     DeviceConveyor.findByPk(1),
+    Settings.findByPk(1),
   ]);
 
   const instockerSlots = safeParse(instockerRow?.slots, {});
@@ -181,8 +188,9 @@ async function loadConfig() {
   const grinders = safeParse(grinderRow?.grinders, []);
   const outstockerSides = safeParse(outstockerRow?.sides, {});
   const conveyors = safeParse(conveyorRow?.conveyors, []);
+  const grinder_wait_ms = Number(settingsRow?.grinder_wait_ms ?? 0);
 
-  configCache = { instockerSlots, sideSignals, grinders, outstockerSides, conveyors };
+  configCache = { instockerSlots, sideSignals, grinders, outstockerSides, conveyors, grinder_wait_ms };
   configFetchedAt = now;
   return configCache;
 }
@@ -233,6 +241,61 @@ function buildAvailableGrinderPositions(grinders) {
     });
   });
   return byProduct;
+}
+
+function buildAvailableGrinderOutputPositions(grinders) {
+  const outputs = [];
+  grinders.forEach((grinder, gIdx) => {
+    const productTypeValue = resolvePlcValue(grinder?.product_type_id);
+    if (productTypeValue === null) return;
+    POSITIONS.forEach((pos) => {
+      const position = grinder?.positions?.[pos] || {};
+      const station = normalizeText(position.amr_pos);
+      const maniPos = normalizeText(position.mani_pos);
+      if (!station || !maniPos) return;
+      const outputReadyId = normalizeText(position.output_ready_id);
+      if (!outputReadyId) return;
+      if (!isSignalOn(outputReadyId)) return;
+      outputs.push({
+        station,
+        mani_pos: maniPos,
+        grinderIndex: grinder?.index ?? gIdx + 1,
+        position: pos,
+        product_type_value: productTypeValue,
+        safe_pos_id: normalizeText(position.safe_pos_id),
+        output_in_progress_id: normalizeText(position.output_in_progress_id),
+        output_done_id: normalizeText(position.output_done_id),
+      });
+    });
+  });
+  return outputs;
+}
+
+function getAvailableOutstockerLoadRows(outstockerSides) {
+  const rows = [];
+  for (const side of OUT_SIDES) {
+    const sideData = outstockerSides?.[side] || {};
+    const amrPos = normalizeText(sideData.amr_pos);
+    const bypassId = normalizeText(sideData.bypass_id);
+    const bypassOn = bypassId ? isSignalOn(bypassId) : false;
+    if (!amrPos || bypassOn) continue;
+    for (const row of OUT_ROWS) {
+      const rowData = sideData.rows?.[row] || {};
+      const maniPos = normalizeText(rowData.mani_pos);
+      if (!maniPos) continue;
+      const loadReadyId = normalizeText(rowData.load_ready_id);
+      if (!loadReadyId || !isSignalOn(loadReadyId)) continue;
+      rows.push({
+        side,
+        row,
+        amr_pos: amrPos,
+        mani_pos: maniPos,
+        working_id: normalizeText(rowData.working_id),
+        load_done_id: normalizeText(rowData.load_done_id),
+      });
+    }
+  }
+  return rows;
 }
 
 async function getActiveTasks() {
@@ -929,6 +992,230 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   });
 }
 
+async function createTaskForGrinderOutput(config, activeTasks) {
+  const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
+  if (!robot) return;
+
+  const existingTask = await Task.findOne({
+    where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
+  });
+  if (existingTask) return;
+
+  const initialOutputs = buildAvailableGrinderOutputPositions(config.grinders || []);
+  const initialOutRows = getAvailableOutstockerLoadRows(config.outstockerSides || {});
+  if (!initialOutputs.length || !initialOutRows.length) return;
+
+  const waitMs = Math.max(0, Number(config.grinder_wait_ms ?? 0));
+  if (waitMs > 0) {
+    console.log(`[TaskCreate] 시나리오2: 연마기 배출 대기 ${waitMs}ms`);
+    await sleep(waitMs);
+  }
+
+  const latestConfig = await loadConfig();
+  const grinderOutputs = buildAvailableGrinderOutputPositions(latestConfig.grinders || []);
+  const outRows = getAvailableOutstockerLoadRows(latestConfig.outstockerSides || {});
+  const maxCount = Math.min(6, grinderOutputs.length, outRows.length);
+  if (!maxCount) return;
+
+  const robotSlots = safeParse(robot.slots, []);
+  const slotNos = robotSlots
+    .map((s) => (typeof s === "object" ? s.slot_no : s))
+    .filter((n) => n != null)
+    .sort((a, b) => a - b);
+
+  if (slotNos.length < maxCount) {
+    console.warn(`[TaskCreate] 시나리오2: AMR 슬롯 부족 (필요: ${maxCount}, 보유: ${slotNos.length})`);
+    return;
+  }
+
+  const stack1 = slotNos.filter((n) => n >= 20 && n < 30).sort((a, b) => a - b);
+  const stack2 = slotNos.filter((n) => n >= 30 && n < 40).sort((a, b) => a - b);
+  const interleavedSlotNos = [];
+  const maxLen = Math.max(stack1.length, stack2.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (stack1[i] !== undefined) interleavedSlotNos.push(stack1[i]);
+    if (stack2[i] !== undefined) interleavedSlotNos.push(stack2[i]);
+  }
+
+  const outputsSorted = [...grinderOutputs].sort((a, b) => {
+    if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 바깥쪽부터
+    return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position);
+  });
+
+  const selectedOutputs = outputsSorted.slice(0, maxCount);
+  const selectedOutRows = outRows.slice(0, maxCount);
+
+  const pairs = selectedOutputs.map((output, idx) => ({
+    output,
+    outRow: selectedOutRows[idx],
+    amrSlotNo: interleavedSlotNos[idx],
+  }));
+
+  const steps = [];
+
+  // PHASE 1: 연마기에서 배출 (바깥쪽 연마기부터)
+  for (const pair of pairs) {
+    const { output, amrSlotNo } = pair;
+
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: output.station }),
+    });
+
+    if (output.output_in_progress_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: output.output_in_progress_id, PLC_DATA: 1 }),
+      });
+    }
+    if (output.safe_pos_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: output.safe_pos_id, PLC_DATA: 0 }),
+      });
+    }
+
+    steps.push({
+      type: "MANI_WORK",
+      payload: JSON.stringify({
+        CMD_ID: 1,
+        CMD_FROM: Number(output.mani_pos),
+        CMD_TO: amrSlotNo,
+        VISION_CHECK: 0,
+        PRODUCT_NO: output.product_type_value,
+        AMR_SLOT_NO: amrSlotNo,
+      }),
+    });
+
+    if (output.output_in_progress_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: output.output_in_progress_id, PLC_DATA: 0 }),
+      });
+    }
+    if (output.safe_pos_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: output.safe_pos_id, PLC_DATA: 1 }),
+      });
+    }
+    if (output.output_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: output.output_done_id, PLC_DATA: 1 }),
+      });
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: output.output_done_id, PLC_DATA: 0 }),
+      });
+    }
+  }
+
+  // PHASE 2: 아웃스토커 적재 (AMR 스택 상단부터 하역)
+  const sortedForUnload = [...pairs].sort((a, b) => {
+    const aStack = a.amrSlotNo < 30 ? 1 : 2;
+    const bStack = b.amrSlotNo < 30 ? 1 : 2;
+    if (aStack !== bStack) return aStack - bStack;
+    return b.amrSlotNo - a.amrSlotNo;
+  });
+
+  let lastOutAmrPos = null;
+  for (const pair of sortedForUnload) {
+    const { outRow, amrSlotNo, output } = pair;
+
+    if (outRow.amr_pos !== lastOutAmrPos) {
+      steps.push({
+        type: "NAV",
+        payload: JSON.stringify({ dest: outRow.amr_pos }),
+      });
+      lastOutAmrPos = outRow.amr_pos;
+    }
+
+    if (outRow.working_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: outRow.working_id, PLC_DATA: 1 }),
+      });
+    }
+
+    steps.push({
+      type: "MANI_WORK",
+      payload: JSON.stringify({
+        CMD_ID: 1,
+        CMD_FROM: amrSlotNo,
+        CMD_TO: Number(outRow.mani_pos),
+        VISION_CHECK: 0,
+        PRODUCT_NO: output.product_type_value,
+        AMR_SLOT_NO: amrSlotNo,
+      }),
+    });
+
+    if (outRow.working_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: outRow.working_id, PLC_DATA: 0 }),
+      });
+    }
+    if (outRow.load_done_id) {
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: outRow.load_done_id, PLC_DATA: 1 }),
+      });
+      steps.push({
+        type: "PLC_WRITE",
+        payload: JSON.stringify({ PLC_BIT: outRow.load_done_id, PLC_DATA: 0 }),
+      });
+    }
+  }
+
+  if (robot.home_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_station }),
+    });
+  }
+
+  const tasks = activeTasks || (await getActiveTasks());
+  const newStations = new Set([
+    ...pairs.map((p) => p.output.station),
+    ...pairs.map((p) => p.outRow.amr_pos),
+    robot.home_station,
+  ].filter(Boolean));
+
+  const newPlcIds = new Set(
+    pairs.flatMap((p) => [
+      p.output.safe_pos_id,
+      p.output.output_in_progress_id,
+      p.output.output_done_id,
+      p.outRow.working_id,
+      p.outRow.load_done_id,
+    ]).filter(Boolean)
+  );
+
+  if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
+    console.log("[TaskCreate] 시나리오2: 기존 태스크와 리소스 중복, 생성 스킵");
+    return;
+  }
+
+  const robotReady = await checkRobotTaskStatus(robot.ip);
+  if (!robotReady) return;
+
+  const task = await Task.create(
+    {
+      robot_id: robot.id,
+      steps: steps.map((s, i) => ({ ...s, seq: i })),
+    },
+    { include: [{ model: TaskStep, as: "steps" }] }
+  );
+
+  console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (${steps.length} steps)`);
+  await logTaskEvent(task.id, "TASK_CREATED", `연마기 → 아웃스토커 태스크 (${maxCount}개, ${steps.length} 스텝)`, {
+    robotId: robot.id,
+    robotName: robot.name,
+    payload: { count: maxCount, stepsCount: steps.length },
+  });
+}
+
 async function logTaskCreateStatus(config) {
   const now = Date.now();
   if (now - lastStatusLogTime < STATUS_LOG_INTERVAL_MS) return;
@@ -1014,6 +1301,19 @@ async function checkSide(side, config, activeTasks) {
   }
 }
 
+async function checkGrinderOutput(config, activeTasks) {
+  if (grinderOutputLock) return;
+  grinderOutputLock = true;
+  try {
+    const cfg = config || (await loadConfig());
+    await createTaskForGrinderOutput(cfg, activeTasks);
+  } catch (err) {
+    console.error("[TaskCreate] 시나리오2 체크 오류:", err?.message || err);
+  } finally {
+    grinderOutputLock = false;
+  }
+}
+
 async function checkConveyors(config, activeTasks) {
   // 모든 컨베이어의 요청을 수집
   const conveyorRequests = [];
@@ -1078,6 +1378,7 @@ function start() {
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
       });
+      await checkGrinderOutput(config, activeTasks);
       await checkConveyors(config, activeTasks);
     } catch (err) {
       console.error("[TaskCreate] loop error:", err?.message || err);
@@ -1098,6 +1399,7 @@ function start() {
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
       });
+      await checkGrinderOutput(config, activeTasks);
       await checkConveyors(config, activeTasks);
     } catch (err) {
       console.error("[TaskCreate] loop error:", err?.message || err);
