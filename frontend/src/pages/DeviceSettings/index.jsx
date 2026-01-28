@@ -296,7 +296,9 @@ export default function DeviceSettings() {
             conveyors: conveyorRes.data.conveyors || createDefaultConveyors(),
           });
         }
-        const robotRows = Array.isArray(robotsRes?.data)
+        const robotRows = Array.isArray(robotsRes)
+          ? robotsRes
+          : Array.isArray(robotsRes?.data)
           ? robotsRes.data
           : Array.isArray(robotsRes?.data?.data)
           ? robotsRes.data.data
