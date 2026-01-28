@@ -296,13 +296,22 @@ export default function DeviceSettings() {
             conveyors: conveyorRes.data.conveyors || createDefaultConveyors(),
           });
         }
-        if (Array.isArray(robotsRes?.data)) {
+        const robotRows = Array.isArray(robotsRes?.data)
+          ? robotsRes.data
+          : Array.isArray(robotsRes?.data?.data)
+          ? robotsRes.data.data
+          : Array.isArray(robotsRes?.data?.rows)
+          ? robotsRes.data.rows
+          : [];
+        if (robotRows.length) {
           setRobots(
-            robotsRes.data.map((robot) => ({
+            robotRows.map((robot) => ({
               ...robot,
               plc_ids: normalizeRobotPlcIds(robot.plc_ids),
             }))
           );
+        } else {
+          setRobots([]);
         }
       } catch (error) {
         console.error("장치 설정 로드 실패:", error);
