@@ -92,6 +92,11 @@ module.exports = sequelize.define('Robot', {
         allowNull: false,
         defaultValue: '[]',
     },
+    plc_ids: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: '{}',
+    },
 }, {
     tableName: 'Robots',
     timestamps: false,

@@ -81,6 +81,12 @@ exports.update = async (req, res) => {
                 patch.slots = JSON.stringify(patch.slots);
             }
         }
+        // plc_ids는 TEXT 컬럼이므로 문자열/객체 모두 허용
+        if (patch.plc_ids !== undefined) {
+            if (typeof patch.plc_ids !== 'string') {
+                patch.plc_ids = JSON.stringify(patch.plc_ids);
+            }
+        }
 
         await robot.update(patch);
         return res.json(robot);

@@ -81,6 +81,12 @@ app.use(express.static(path.join(__dirname, 'dist')));
         allowNull: false,
         defaultValue: '[]',
       }).catch(() => { });
+      // plc_ids
+      await qi.addColumn('Robots', 'plc_ids', {
+        type: require('sequelize').DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: '{}',
+      }).catch(() => { });
     };
     await ensureRobotColumns();
 

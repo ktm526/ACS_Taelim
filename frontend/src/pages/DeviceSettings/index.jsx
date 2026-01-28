@@ -39,6 +39,49 @@ const SIGNALS = [
   { key: "output_in_progress_id", label: "배출중" },
   { key: "output_done_id", label: "배출 완료" },
 ];
+const ROBOT_STATUS_FIELDS = [
+  { key: "ready_id", label: "ready" },
+  { key: "run_id", label: "run" },
+  { key: "hold_id", label: "hold" },
+  { key: "manual_id", label: "manual" },
+  { key: "estop_id", label: "estop" },
+  { key: "error_id", label: "error" },
+  { key: "charging_id", label: "charging" },
+];
+const ROBOT_INFO_FIELDS = [
+  { key: "name_id", label: "이름" },
+  { key: "battery_id", label: "배터리" },
+  { key: "error_code_id", label: "오류코드" },
+  { key: "destination_id", label: "도착지" },
+  { key: "current_location_id", label: "현재위치" },
+  { key: "status_id", label: "상태" },
+  { key: "cmd_from_id", label: "cmd_from" },
+  { key: "cmd_to_id", label: "cmd_to" },
+  { key: "arm_status_id", label: "로봇팔 status" },
+  { key: "vision_error_id", label: "비전 error" },
+  { key: "controller_temperature_id", label: "컨트롤러 온도" },
+  { key: "x_id", label: "X 좌표" },
+  { key: "y_id", label: "Y 좌표" },
+  { key: "angle_id", label: "Angle" },
+  { key: "battery_temperature_id", label: "배터리 온도" },
+  { key: "run_time_id", label: "실행 시간" },
+  { key: "total_run_time_id", label: "누적 실행 시간" },
+];
+const ROBOT_JOINT_FIELDS = [
+  { prefix: "joint_position", label: "조인트 위치" },
+  { prefix: "joint_velocity", label: "조인트 속도" },
+  { prefix: "joint_current", label: "조인트 전류" },
+  { prefix: "joint_temperature", label: "조인트 온도" },
+  { prefix: "joint_torque", label: "조인트 토크" },
+];
+const ROBOT_JOINT_KEYS = ROBOT_JOINT_FIELDS.flatMap((group) =>
+  Array.from({ length: 6 }, (_, idx) => `${group.prefix}_${idx + 1}_id`)
+);
+const ROBOT_PLC_KEYS = [
+  ...ROBOT_STATUS_FIELDS.map((f) => f.key),
+  ...ROBOT_INFO_FIELDS.map((f) => f.key),
+  ...ROBOT_JOINT_KEYS,
+];
 
 function createDefaultSlots() {
   const slots = {};
@@ -167,10 +210,12 @@ export default function DeviceSettings() {
   const [savingGrinder, setSavingGrinder] = useState(false);
   const [savingOutstocker, setSavingOutstocker] = useState(false);
   const [savingConveyor, setSavingConveyor] = useState(false);
+  const [savingRobots, setSavingRobots] = useState(false);
   const [instockerSavedAt, setInstockerSavedAt] = useState(null);
   const [grinderSavedAt, setGrinderSavedAt] = useState(null);
   const [outstockerSavedAt, setOutstockerSavedAt] = useState(null);
   const [conveyorSavedAt, setConveyorSavedAt] = useState(null);
+  const [robotsSavedAt, setRobotsSavedAt] = useState(null);
   const [plcValues, setPlcValues] = useState({});
   const fileInputRef = useRef(null);
   const [instocker, setInstocker] = useState({
@@ -187,6 +232,7 @@ export default function DeviceSettings() {
   const [conveyor, setConveyor] = useState({
     conveyors: createDefaultConveyors(),
   });
+  const [robots, setRobots] = useState([]);
   const [collapseKeys, setCollapseKeys] = useState(() => {
     try {
       const raw = localStorage.getItem("deviceSettingsCollapseKeys");
@@ -221,11 +267,12 @@ export default function DeviceSettings() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [instockerRes, grinderRes, outstockerRes, conveyorRes] = await Promise.all([
+        const [instockerRes, grinderRes, outstockerRes, conveyorRes, robotsRes] = await Promise.all([
           apiClient.get("/api/devices/instocker"),
           apiClient.get("/api/devices/grinder"),
           apiClient.get("/api/devices/outstocker"),
           apiClient.get("/api/devices/conveyor"),
+          apiClient.get("/api/robots"),
         ]);
         if (instockerRes?.data) {
           setInstocker({
@@ -248,6 +295,14 @@ export default function DeviceSettings() {
           setConveyor({
             conveyors: conveyorRes.data.conveyors || createDefaultConveyors(),
           });
+        }
+        if (Array.isArray(robotsRes?.data)) {
+          setRobots(
+            robotsRes.data.map((robot) => ({
+              ...robot,
+              plc_ids: normalizeRobotPlcIds(robot.plc_ids),
+            }))
+          );
         }
       } catch (error) {
         console.error("장치 설정 로드 실패:", error);
@@ -300,8 +355,14 @@ export default function DeviceSettings() {
         pushId(item?.[field.key]);
       });
     });
+    robots.forEach((robot) => {
+      const plcIds = robot?.plc_ids || {};
+      ROBOT_PLC_KEYS.forEach((key) => {
+        pushId(plcIds?.[key]);
+      });
+    });
     return Array.from(new Set(ids));
-  }, [instocker, grinder, outstocker, conveyor, slotKeys]);
+  }, [instocker, grinder, outstocker, conveyor, robots, slotKeys]);
 
   useEffect(() => {
     let isActive = true;
@@ -486,6 +547,27 @@ export default function DeviceSettings() {
     }
   };
 
+  const saveRobots = async () => {
+    if (!robots.length) return;
+    setSavingRobots(true);
+    try {
+      await Promise.all(
+        robots.map((robot) =>
+          apiClient.put(`/api/robots/${robot.id}`, {
+            plc_ids: robot.plc_ids || {},
+          })
+        )
+      );
+      message.success("AMR PLC ID가 저장되었습니다.");
+      setRobotsSavedAt(new Date());
+    } catch (error) {
+      console.error("AMR 저장 실패:", error);
+      message.error("AMR PLC ID 저장에 실패했습니다.");
+    } finally {
+      setSavingRobots(false);
+    }
+  };
+
   const renderValueTag = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return <Tag color="default">-</Tag>;
@@ -590,6 +672,41 @@ export default function DeviceSettings() {
           {hasValue ? String(value) : "-"}
         </Tag>
       </Popover>
+    );
+  };
+
+  const normalizeRobotPlcIds = (raw) => {
+    if (!raw) {
+      return Object.fromEntries(ROBOT_PLC_KEYS.map((key) => [key, null]));
+    }
+    let parsed = raw;
+    if (typeof raw === "string") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = {};
+      }
+    }
+    const out = {};
+    ROBOT_PLC_KEYS.forEach((key) => {
+      out[key] = normalizeText(parsed?.[key]);
+    });
+    return out;
+  };
+
+  const handleRobotPlcChange = (robotId, key, value) => {
+    setRobots((prev) =>
+      prev.map((robot) =>
+        robot.id === robotId
+          ? {
+              ...robot,
+              plc_ids: {
+                ...(robot.plc_ids || {}),
+                [key]: normalizeText(value),
+              },
+            }
+          : robot
+      )
     );
   };
 
@@ -1503,6 +1620,143 @@ export default function DeviceSettings() {
                 />
                 <Tag color="default">-</Tag>
               </div>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "amr",
+      label: (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>AMR 설정</span>
+          {robotsSavedAt && (
+            <Tag color="green" style={{ margin: 0 }}>
+              저장됨 {robotsSavedAt.toLocaleTimeString("ko-KR")}
+            </Tag>
+          )}
+        </div>
+      ),
+      extra: (
+        <div style={{ display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" type="primary" onClick={saveRobots} loading={savingRobots}>
+            저장
+          </Button>
+        </div>
+      ),
+      children: (
+        <div style={{ display: "grid", gap: 16 }}>
+          {robots.length === 0 && (
+            <div style={{ padding: 12, color: "#999" }}>등록된 AMR이 없습니다.</div>
+          )}
+          {robots.map((robot) => (
+            <div
+              key={robot.id}
+              style={{
+                border: "1px solid #e8e8e8",
+                borderRadius: 8,
+                padding: 12,
+                background: "#fff",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{robot.name}</div>
+                <div style={{ fontSize: 12, color: "#999" }}>{robot.ip}</div>
+              </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "120px 1fr 80px",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 12,
+                }}
+              >
+                {ROBOT_STATUS_FIELDS.map((field) => (
+                  <React.Fragment key={`${robot.id}-${field.key}`}>
+                    <span>{field.label}</span>
+                    <Input
+                      size="small"
+                      value={robot.plc_ids?.[field.key] ?? ""}
+                      onChange={(e) => handleRobotPlcChange(robot.id, field.key, e.target.value)}
+                      placeholder="ID"
+                    />
+                    {renderPlcValueWithReset(
+                      robot.plc_ids?.[field.key],
+                      plcValues?.[robot.plc_ids?.[field.key]]
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "120px 1fr 80px",
+                  gap: 4,
+                  alignItems: "center",
+                  fontSize: 12,
+                }}
+              >
+                {ROBOT_INFO_FIELDS.map((field) => (
+                  <React.Fragment key={`${robot.id}-${field.key}`}>
+                    <span>{field.label}</span>
+                    <Input
+                      size="small"
+                      value={robot.plc_ids?.[field.key] ?? ""}
+                      onChange={(e) => handleRobotPlcChange(robot.id, field.key, e.target.value)}
+                      placeholder="ID"
+                    />
+                    {renderPlcValueWithReset(
+                      robot.plc_ids?.[field.key],
+                      plcValues?.[robot.plc_ids?.[field.key]]
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
+              {ROBOT_JOINT_FIELDS.map((group) => (
+                <div key={`${robot.id}-${group.prefix}`} style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
+                    {group.label}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "40px 1fr 80px",
+                      gap: 4,
+                      alignItems: "center",
+                      fontSize: 12,
+                    }}
+                  >
+                    {Array.from({ length: 6 }, (_, idx) => {
+                      const key = `${group.prefix}_${idx + 1}_id`;
+                      return (
+                        <React.Fragment key={`${robot.id}-${key}`}>
+                          <span>J{idx + 1}</span>
+                          <Input
+                            size="small"
+                            value={robot.plc_ids?.[key] ?? ""}
+                            onChange={(e) => handleRobotPlcChange(robot.id, key, e.target.value)}
+                            placeholder="ID"
+                          />
+                          {renderPlcValueWithReset(
+                            robot.plc_ids?.[key],
+                            plcValues?.[robot.plc_ids?.[key]]
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </div>
