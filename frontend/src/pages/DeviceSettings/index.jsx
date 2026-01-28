@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Card, Input, Button, Spin, message, Tag, Select, Collapse, Divider, Popover, InputNumber, Tabs } from "antd";
-import { CaretRightOutlined, RobotOutlined } from "@ant-design/icons";
+import { Card, Input, Button, Spin, message, Tag, Select, Collapse, Divider, Popover, InputNumber } from "antd";
+import { CaretRightOutlined } from "@ant-design/icons";
 import { useAtomValue } from "jotai";
 import { useApiClient } from "@/hooks/useApiClient";
 import { selectedMapAtom } from "@/state/atoms";
@@ -1640,9 +1640,7 @@ export default function DeviceSettings() {
       key: "amr",
       label: (
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <RobotOutlined style={{ fontSize: 16 }} />
           <span style={{ fontWeight: 600, fontSize: 15 }}>AMR 설정</span>
-          <Tag color="blue" style={{ margin: 0 }}>{robots.length}대</Tag>
           {robotsSavedAt && (
             <Tag color="green" style={{ margin: 0 }}>
               저장됨 {robotsSavedAt.toLocaleTimeString("ko-KR")}
@@ -1658,239 +1656,151 @@ export default function DeviceSettings() {
         </div>
       ),
       children: (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "grid", gap: 16 }}>
           {robots.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "#999", background: "#fafafa", borderRadius: 8 }}>
-              <RobotOutlined style={{ fontSize: 32, marginBottom: 8, opacity: 0.5 }} />
-              <div>등록된 AMR이 없습니다.</div>
-            </div>
+            <div style={{ padding: 12, color: "#999" }}>등록된 AMR이 없습니다.</div>
           )}
-          {robots.map((robot) => {
-            // 상태 필드 PLC 값 조회
-            const getStatusValue = (key) => {
-              const plcId = robot.plc_ids?.[key];
-              return plcId ? plcValues?.[plcId] : null;
-            };
-
-            return (
+          {robots.map((robot) => (
+            <div
+              key={robot.id}
+              style={{
+                border: "1px solid #e8e8e8",
+                borderRadius: 8,
+                padding: 12,
+                background: "#fff",
+              }}
+            >
               <div
-                key={robot.id}
                 style={{
-                  border: "1px solid #e8e8e8",
-                  borderRadius: 12,
-                  background: "#fff",
-                  overflow: "hidden",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 8,
+                  borderBottom: "1px solid #f0f0f0",
+                  paddingBottom: 8,
                 }}
               >
-                {/* 헤더 영역 */}
+                <span>{robot.name}</span>
+                <span style={{ fontWeight: 400, fontSize: 12, color: "#999" }}>{robot.ip}</span>
+              </div>
+
+              {/* 상태 필드 */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4 }}>상태</div>
                 <div
                   style={{
-                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                    padding: "16px 20px",
-                    color: "#fff",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(7, 1fr)",
+                    gap: 4,
+                    fontSize: 11,
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <RobotOutlined style={{ fontSize: 24 }} />
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 18 }}>{robot.name}</div>
-                        <div style={{ fontSize: 12, opacity: 0.85 }}>{robot.ip}</div>
-                      </div>
+                  {ROBOT_STATUS_FIELDS.map((field) => (
+                    <div key={field.key} style={{ textAlign: "center", fontWeight: 600 }}>
+                      {field.label}
                     </div>
-                  </div>
-
-                  {/* 상태 뱃지 */}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
-                    {ROBOT_STATUS_FIELDS.map((field) => {
-                      const val = getStatusValue(field.key);
-                      const isActive = val === 1 || val === "1";
-                      return (
-                        <Tag
-                          key={field.key}
-                          color={isActive ? "green" : "default"}
-                          style={{
-                            margin: 0,
-                            borderRadius: 12,
-                            padding: "2px 10px",
-                            fontSize: 11,
-                            fontWeight: 500,
-                            background: isActive ? "rgba(82, 196, 26, 0.9)" : "rgba(255,255,255,0.15)",
-                            border: "none",
-                            color: isActive ? "#fff" : "rgba(255,255,255,0.85)",
-                          }}
-                        >
-                          {field.label.toUpperCase()}
-                        </Tag>
-                      );
-                    })}
-                  </div>
+                  ))}
+                  {ROBOT_STATUS_FIELDS.map((field) => {
+                    const plcId = robot.plc_ids?.[field.key];
+                    const val = plcId ? plcValues?.[plcId] : null;
+                    return (
+                      <div key={`${field.key}-input`} style={{ display: "flex", gap: 2, alignItems: "center" }}>
+                        <Input
+                          size="small"
+                          value={plcId ?? ""}
+                          onChange={(e) => handleRobotPlcChange(robot.id, field.key, e.target.value)}
+                          placeholder="ID"
+                          style={{ flex: 1 }}
+                        />
+                        {renderPlcValueWithReset(plcId, val)}
+                      </div>
+                    );
+                  })}
                 </div>
-
-                {/* 콘텐츠 영역 - 탭 */}
-                <Tabs
-                  defaultActiveKey="status"
-                  size="small"
-                  style={{ padding: "0 16px 16px" }}
-                  items={[
-                    {
-                      key: "status",
-                      label: "상태 ID",
-                      children: (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                          {ROBOT_STATUS_FIELDS.map((field) => {
-                            const plcId = robot.plc_ids?.[field.key];
-                            const val = plcId ? plcValues?.[plcId] : null;
-                            return (
-                              <div
-                                key={field.key}
-                                style={{
-                                  background: "#f8f9fa",
-                                  borderRadius: 8,
-                                  padding: "8px 10px",
-                                }}
-                              >
-                                <div style={{ fontSize: 10, color: "#666", marginBottom: 4, fontWeight: 600 }}>
-                                  {field.label.toUpperCase()}
-                                </div>
-                                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                  <Input
-                                    size="small"
-                                    value={plcId ?? ""}
-                                    onChange={(e) => handleRobotPlcChange(robot.id, field.key, e.target.value)}
-                                    placeholder="ID"
-                                    style={{ flex: 1, fontSize: 11 }}
-                                  />
-                                  {renderPlcValueWithReset(plcId, val)}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ),
-                    },
-                    {
-                      key: "info",
-                      label: "기본 정보",
-                      children: (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                          {ROBOT_INFO_FIELDS.map((field) => {
-                            const plcId = robot.plc_ids?.[field.key];
-                            const val = plcId ? plcValues?.[plcId] : null;
-                            return (
-                              <div
-                                key={field.key}
-                                style={{
-                                  background: "#f8f9fa",
-                                  borderRadius: 8,
-                                  padding: "8px 10px",
-                                }}
-                              >
-                                <div style={{ fontSize: 10, color: "#666", marginBottom: 4, fontWeight: 600 }}>
-                                  {field.label}
-                                </div>
-                                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                  <Input
-                                    size="small"
-                                    value={plcId ?? ""}
-                                    onChange={(e) => handleRobotPlcChange(robot.id, field.key, e.target.value)}
-                                    placeholder="ID"
-                                    style={{ flex: 1, fontSize: 11 }}
-                                  />
-                                  {renderPlcValueWithReset(plcId, val)}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ),
-                    },
-                    {
-                      key: "joint",
-                      label: "조인트",
-                      children: (
-                        <div style={{ overflowX: "auto" }}>
-                          <table
-                            style={{
-                              width: "100%",
-                              borderCollapse: "collapse",
-                              fontSize: 11,
-                            }}
-                          >
-                            <thead>
-                              <tr style={{ background: "#f8f9fa" }}>
-                                <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, borderBottom: "2px solid #e8e8e8" }}></th>
-                                {Array.from({ length: 6 }, (_, idx) => (
-                                  <th
-                                    key={idx}
-                                    style={{
-                                      padding: "8px 6px",
-                                      textAlign: "center",
-                                      fontWeight: 600,
-                                      borderBottom: "2px solid #e8e8e8",
-                                      minWidth: 80,
-                                    }}
-                                  >
-                                    J{idx + 1}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {ROBOT_JOINT_FIELDS.map((group, groupIdx) => (
-                                <tr
-                                  key={group.prefix}
-                                  style={{ background: groupIdx % 2 === 0 ? "#fff" : "#fafafa" }}
-                                >
-                                  <td
-                                    style={{
-                                      padding: "6px 8px",
-                                      fontWeight: 600,
-                                      borderBottom: "1px solid #f0f0f0",
-                                      whiteSpace: "nowrap",
-                                      fontSize: 10,
-                                      color: "#666",
-                                    }}
-                                  >
-                                    {group.label}
-                                  </td>
-                                  {Array.from({ length: 6 }, (_, idx) => {
-                                    const key = `${group.prefix}_${idx + 1}_id`;
-                                    const plcId = robot.plc_ids?.[key];
-                                    const val = plcId ? plcValues?.[plcId] : null;
-                                    return (
-                                      <td
-                                        key={key}
-                                        style={{
-                                          padding: "4px",
-                                          borderBottom: "1px solid #f0f0f0",
-                                        }}
-                                      >
-                                        <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
-                                          <Input
-                                            size="small"
-                                            value={plcId ?? ""}
-                                            onChange={(e) => handleRobotPlcChange(robot.id, key, e.target.value)}
-                                            placeholder="ID"
-                                            style={{ width: "100%", fontSize: 10 }}
-                                          />
-                                          {renderPlcValueWithReset(plcId, val)}
-                                        </div>
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ),
-                    },
-                  ]}
-                />
               </div>
-            );
-          })}
+
+              <Divider style={{ margin: "8px 0" }} />
+
+              {/* 기본 정보 필드 */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4 }}>기본 정보</div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "100px 1fr 50px 100px 1fr 50px",
+                    gap: 4,
+                    alignItems: "center",
+                    fontSize: 11,
+                  }}
+                >
+                  {ROBOT_INFO_FIELDS.map((field) => {
+                    const plcId = robot.plc_ids?.[field.key];
+                    const val = plcId ? plcValues?.[plcId] : null;
+                    return (
+                      <React.Fragment key={field.key}>
+                        <span>{field.label}</span>
+                        <Input
+                          size="small"
+                          value={plcId ?? ""}
+                          onChange={(e) => handleRobotPlcChange(robot.id, field.key, e.target.value)}
+                          placeholder="ID"
+                        />
+                        {renderPlcValueWithReset(plcId, val)}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
+              {/* 조인트 정보 - 테이블 형태 */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4 }}>조인트</div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "80px repeat(6, 1fr)",
+                    gap: 4,
+                    alignItems: "center",
+                    fontSize: 11,
+                  }}
+                >
+                  {/* 헤더 */}
+                  <span></span>
+                  {Array.from({ length: 6 }, (_, idx) => (
+                    <span key={idx} style={{ textAlign: "center", fontWeight: 600 }}>J{idx + 1}</span>
+                  ))}
+
+                  {/* 각 조인트 그룹별 행 */}
+                  {ROBOT_JOINT_FIELDS.map((group) => (
+                    <React.Fragment key={group.prefix}>
+                      <span style={{ fontSize: 10 }}>{group.label}</span>
+                      {Array.from({ length: 6 }, (_, idx) => {
+                        const key = `${group.prefix}_${idx + 1}_id`;
+                        const plcId = robot.plc_ids?.[key];
+                        const val = plcId ? plcValues?.[plcId] : null;
+                        return (
+                          <div key={key} style={{ display: "flex", gap: 2, alignItems: "center" }}>
+                            <Input
+                              size="small"
+                              value={plcId ?? ""}
+                              onChange={(e) => handleRobotPlcChange(robot.id, key, e.target.value)}
+                              placeholder="ID"
+                              style={{ flex: 1 }}
+                            />
+                            {renderPlcValueWithReset(plcId, val)}
+                          </div>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ),
     },
