@@ -60,6 +60,7 @@ async function writePlcBit(plcId, value, robotName = '') {
     if (!connected) return;
     
     // address.bit 형식 파싱 (예: "5100.0" → wordAddr=5100, bitIndex=0)
+    // bit은 0-15 또는 0-F(16진수) 허용
     const parts = String(plcId).split(".");
     const wordAddr = parseInt(parts[0], 10);
     if (isNaN(wordAddr)) return;
@@ -68,7 +69,8 @@ async function writePlcBit(plcId, value, robotName = '') {
 
     if (parts.length === 2) {
       // bit 쓰기: 현재 레지스터 읽고 bit 변경 후 쓰기
-      const bitIndex = parseInt(parts[1], 10);
+      const bitText = String(parts[1]).trim();
+      const bitIndex = /[a-f]/i.test(bitText) ? parseInt(bitText, 16) : parseInt(bitText, 10);
       if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return;
 
       const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
@@ -106,7 +108,8 @@ async function readPlcValue(plcId) {
   const currentWord = currentData.data[0];
 
   if (parts.length === 2) {
-    const bitIndex = parseInt(parts[1], 10);
+    const bitText = String(parts[1]).trim();
+    const bitIndex = /[a-f]/i.test(bitText) ? parseInt(bitText, 16) : parseInt(bitText, 10);
     if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return null;
     return (currentWord >> bitIndex) & 1;
   }
