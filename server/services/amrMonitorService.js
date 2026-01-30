@@ -65,22 +65,21 @@ async function writePlcBit(plcId, value, robotName = '') {
     if (isNaN(wordAddr)) return;
     
     const writeValue = value ? 1 : 0;
-    
+
     if (parts.length === 2) {
       // bit 쓰기: 현재 레지스터 읽고 bit 변경 후 쓰기
       const bitIndex = parseInt(parts[1], 10);
       if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return;
-      
+
       const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
-      let wordValue = currentData.data[0];
-      
+      let nextWord = currentData.data[0];
       if (writeValue) {
-        wordValue |= (1 << bitIndex); // bit set
+        nextWord |= (1 << bitIndex);
       } else {
-        wordValue &= ~(1 << bitIndex); // bit clear
+        nextWord &= ~(1 << bitIndex);
       }
-      
-      await plcWriteClient.writeRegister(wordAddr, wordValue);
+
+      await plcWriteClient.writeRegister(wordAddr, nextWord);
       console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     } else {
       // word 쓰기
@@ -93,9 +92,31 @@ async function writePlcBit(plcId, value, robotName = '') {
   }
 }
 
+// PLC 현재 값 읽기 (bit/word)
+async function readPlcValue(plcId) {
+  if (!plcId) return null;
+  const connected = await ensurePlcConnected();
+  if (!connected) return null;
+
+  const parts = String(plcId).split(".");
+  const wordAddr = parseInt(parts[0], 10);
+  if (isNaN(wordAddr)) return null;
+
+  const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
+  const currentWord = currentData.data[0];
+
+  if (parts.length === 2) {
+    const bitIndex = parseInt(parts[1], 10);
+    if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return null;
+    return (currentWord >> bitIndex) & 1;
+  }
+  return currentWord;
+}
+
 // AMR 상태를 PLC에 기록 (500ms 쓰로틀링)
 const PLC_WRITE_THROTTLE_MS = 500;
 const lastStatusFlags = new Map(); // 로봇별 마지막 상태 플래그
+const desiredStatusByRobot = new Map(); // 로봇별 원하는 상태 저장
 
 async function writeAmrStatusToPlc(robot, statusFlags) {
   if (!robot?.plc_ids) return;
@@ -126,6 +147,13 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
     .some(key => plcIds[key]);
   if (!hasAnyPlcId) return;
   
+  // 원하는 상태 저장 (주기적 보정용)
+  desiredStatusByRobot.set(robotId, {
+    name: robot.name,
+    plcIds,
+    statusFlags,
+  });
+
   // 상태 필드별 PLC 쓰기
   const statusMapping = [
     { key: 'ready_id', label: 'ready', value: statusFlags.ready },
@@ -152,6 +180,45 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
   lastPlcWriteTime.set(robotId, now);
   lastStatusFlags.set(robotId, flagsKey);
 }
+
+// 주기적으로 PLC 상태와 AMR 상태를 비교 후 불일치 시 보정
+const PLC_RECONCILE_INTERVAL_MS = 1000;
+setInterval(async () => {
+  if (!desiredStatusByRobot.size) return;
+
+  for (const [robotId, desired] of desiredStatusByRobot.entries()) {
+    const { name, plcIds, statusFlags } = desired || {};
+    if (!plcIds || !statusFlags) continue;
+
+    const statusMapping = [
+      { key: 'ready_id', label: 'ready', value: statusFlags.ready },
+      { key: 'run_id', label: 'run', value: statusFlags.run },
+      { key: 'hold_id', label: 'hold', value: statusFlags.hold },
+      { key: 'manual_id', label: 'manual', value: statusFlags.manual },
+      { key: 'estop_id', label: 'estop', value: statusFlags.estop },
+      { key: 'error_id', label: 'error', value: statusFlags.error },
+      { key: 'charging_id', label: 'charging', value: statusFlags.charging },
+    ];
+
+    for (const { key, label, value } of statusMapping) {
+      const plcId = plcIds[key];
+      if (!plcId) continue;
+
+      try {
+        const current = await readPlcValue(plcId);
+        const desiredValue = value ? 1 : 0;
+        if (current === null || current === undefined) continue;
+        if (Number(current) !== desiredValue) {
+          console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
+          await writePlcBit(plcId, desiredValue, name);
+        }
+      } catch (e) {
+        console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
+      }
+    }
+  }
+}, PLC_RECONCILE_INTERVAL_MS);
+
 
 // 로봇 매니퓰레이터 TASK_STATUS 확인
 const DOOSAN_STATE_API = 4022;

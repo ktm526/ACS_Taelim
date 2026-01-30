@@ -322,22 +322,18 @@ async function createTaskForSide(side, config, activeTasks) {
   //console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
 
   const availableByProduct = buildAvailableGrinderPositions(config.grinders);
-  //console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치:`, 
-  //  Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(', ') || '없음'
-//  );
+  // 제품별 투입 가능 연마기 수 (참고 로그)
+  const productCounts = Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(", ") || "없음";
+  //console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치: ${productCounts}`);
 
+  // 슬롯 1~6 순서대로, 해당 제품의 투입 가능 연마기가 있으면 매칭(최대 6개). 없으면 중단.
   const slotTargets = [];
   for (const slot of slots) {
-    if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) {
-      //console.warn(`[TaskCreate] ${side}: 슬롯 ${slot.key} 설정 누락 (product_type_id=${slot.product_type_id}, value=${slot.product_type_value}, mani=${slot.mani_pos})`);
-      return;
-    }
+    if (slotTargets.length >= 6) break;
+    if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) break;
     const productKey = String(slot.product_type_value);
     const list = availableByProduct.get(productKey) || [];
-    if (list.length === 0) {
-      //console.log(`[TaskCreate] ${side}: 제품 ${productKey} 투입 가능 위치 부족 (슬롯 ${slot.key})`);
-      return;
-    }
+    if (list.length === 0) break;
     const next = list.shift();
     slotTargets.push({
       slotIndex: slot.index,
@@ -346,16 +342,21 @@ async function createTaskForSide(side, config, activeTasks) {
       instocker_mani_pos: slot.mani_pos,
       grinder_station: next.station,
       grinder_mani_pos: next.mani_pos,
-      grinderIndex: next.grinderIndex, // 연마기 번호 추가
+      grinderIndex: next.grinderIndex,
       grinderPosition: next.position,
-      // 연마기 신호 ID들
       safe_pos_id: next.safe_pos_id,
       input_in_progress_id: next.input_in_progress_id,
       input_done_id: next.input_done_id,
     });
-    availableByProduct.set(slot.product_type_id, list);
+    availableByProduct.set(productKey, list);
     console.log(`[TaskCreate] ${side}: 슬롯 ${slot.key}(제품${productKey}) → 연마기 ${next.grinderIndex}-${next.position}`);
   }
+
+  if (slotTargets.length === 0) {
+    //console.log(`[TaskCreate] ${side}: 매칭된 슬롯 없음 (연마기 투입가능: ${productCounts})`);
+    return;
+  }
+  console.log(`[TaskCreate] ${side}: 픽업 수량 K=${slotTargets.length} (연마기 투입가능 기준, 최대 6)`);
 
   const robot = await Robot.findOne({ where: { name: "M1000" } });
   if (!robot) {
@@ -371,8 +372,8 @@ async function createTaskForSide(side, config, activeTasks) {
     .filter((n) => n != null)
     .sort((a, b) => a - b);
   
-  if (slotNos.length < slots.length) {
-    console.warn(`[TaskCreate] ${side}: AMR 슬롯 부족 (필요: ${slots.length}, 보유: ${slotNos.length})`);
+  if (slotNos.length < slotTargets.length) {
+    console.warn(`[TaskCreate] ${side}: AMR 슬롯 부족 (필요: ${slotTargets.length}, 보유: ${slotNos.length})`);
     return;
   }
 
@@ -385,8 +386,22 @@ async function createTaskForSide(side, config, activeTasks) {
   // ═══════════════════════════════════════════════════════════════
   
   // 슬롯을 스택으로 분리 (20번대, 30번대)
-  const stack1 = slotNos.filter(n => n >= 20 && n < 30).sort((a, b) => a - b); // [21, 22, 23]
-  const stack2 = slotNos.filter(n => n >= 30 && n < 40).sort((a, b) => a - b); // [31, 32, 33]
+  const rawStack1 = slotNos.filter(n => n >= 20 && n < 30).sort((a, b) => a - b); // [21, 22, 23]
+  const rawStack2 = slotNos.filter(n => n >= 30 && n < 40).sort((a, b) => a - b); // [31, 32, 33]
+  
+  // 스택 하단부터 연속으로만 사용 가능하도록 제한
+  const limitStackByBottom = (stack, base) => {
+    const out = [];
+    for (let i = 0; i < 3; i += 1) {
+      const slotNo = base + i;
+      if (!stack.includes(slotNo)) break;
+      out.push(slotNo);
+    }
+    return out;
+  };
+  
+  const stack1 = limitStackByBottom(rawStack1, 21); // 21 없으면 22/23 사용 불가
+  const stack2 = limitStackByBottom(rawStack2, 31); // 31 없으면 32/33 사용 불가
   
   // 스택 interleave 순서로 재배열 (낮은 연마기용부터 배치)
   // [21, 31, 22, 32, 23, 33] - 스택1 하단, 스택2 하단, 스택1 중단, ...
