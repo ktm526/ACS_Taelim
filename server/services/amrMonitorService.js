@@ -200,6 +200,7 @@ setInterval(async () => {
       { key: 'charging_id', label: 'charging', value: statusFlags.charging },
     ];
 
+    const summaryParts = [];
     for (const { key, label, value } of statusMapping) {
       const plcId = plcIds[key];
       if (!plcId) continue;
@@ -208,13 +209,19 @@ setInterval(async () => {
         const current = await readPlcValue(plcId);
         const desiredValue = value ? 1 : 0;
         if (current === null || current === undefined) continue;
+        summaryParts.push(`${label}=${Number(current)}`);
         if (Number(current) !== desiredValue) {
           console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
           await writePlcBit(plcId, desiredValue, name);
+        } else {
+          console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
         }
       } catch (e) {
         console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
       }
+    }
+    if (summaryParts.length) {
+      console.log(`[AMR-PLC] ${name} PLC 상태 요약: ${summaryParts.join(", ")}`);
     }
   }
 }, PLC_RECONCILE_INTERVAL_MS);
