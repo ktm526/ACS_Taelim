@@ -432,6 +432,10 @@ function handlePush(sock, ip) {
                 charging: isChargingNow,
             };
             
+            // 상태 계산 디버그 로그
+            console.log(`[AMR-PLC][DEBUG] ${name} raw=emergency:${isEmergencyNow} charging:${isChargingNow} errors:${hasErrors} taskStatus:${tsRaw} runningStatus:${rsRaw} hasRunning:${hasRunningTask} hasPaused:${hasPausedTask}`);
+            console.log(`[AMR-PLC][DEBUG] ${name} flags=ready:${statusFlags.ready} run:${statusFlags.run} hold:${statusFlags.hold} manual:${statusFlags.manual} estop:${statusFlags.estop} error:${statusFlags.error} charging:${statusFlags.charging}`);
+            
             // PLC에 상태 기록
             if (robotForStatus) {
                 writeAmrStatusToPlc(robotForStatus, statusFlags).catch(e => {
