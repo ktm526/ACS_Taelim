@@ -752,7 +752,7 @@ async function tick() {
   // 10초마다 상태 요약 출력
   if (tickCount % 10 === 1) {
     const taskSummary = tasks.length ? tasks.map(t => `#${t.id}(${t.status})`).join(', ') : '없음';
-    console.log(`[Executor] tick#${tickCount}: 로봇 ${robots.length}대, 활성 태스크: ${taskSummary}, 글로벌 RUNNING: ${hasGlobalRunningTask}`);
+    //console.log(`[Executor] tick#${tickCount}: 로봇 ${robots.length}대, 활성 태스크: ${taskSummary}, 글로벌 RUNNING: ${hasGlobalRunningTask}`);
   }
 
   const tasksByRobot = new Map();

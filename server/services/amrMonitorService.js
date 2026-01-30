@@ -52,7 +52,7 @@ setInterval(async () => {
 }, 5000);
 
 // PLC bit 쓰기 함수 (address.bit 형식 지원)
-async function writePlcBit(plcId, value) {
+async function writePlcBit(plcId, value, robotName = '') {
   if (!plcId) return;
   
   try {
@@ -81,9 +81,11 @@ async function writePlcBit(plcId, value) {
       }
       
       await plcWriteClient.writeRegister(wordAddr, wordValue);
+      console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     } else {
       // word 쓰기
       await plcWriteClient.writeRegister(wordAddr, writeValue);
+      console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     }
   } catch (e) {
     console.warn(`[AMR-PLC] PLC 쓰기 실패 (${plcId}=${value}): ${e.message}`);
@@ -126,19 +128,23 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
   
   // 상태 필드별 PLC 쓰기
   const statusMapping = [
-    { key: 'ready_id', value: statusFlags.ready },
-    { key: 'run_id', value: statusFlags.run },
-    { key: 'hold_id', value: statusFlags.hold },
-    { key: 'manual_id', value: statusFlags.manual },
-    { key: 'estop_id', value: statusFlags.estop },
-    { key: 'error_id', value: statusFlags.error },
-    { key: 'charging_id', value: statusFlags.charging },
+    { key: 'ready_id', label: 'ready', value: statusFlags.ready },
+    { key: 'run_id', label: 'run', value: statusFlags.run },
+    { key: 'hold_id', label: 'hold', value: statusFlags.hold },
+    { key: 'manual_id', label: 'manual', value: statusFlags.manual },
+    { key: 'estop_id', label: 'estop', value: statusFlags.estop },
+    { key: 'error_id', label: 'error', value: statusFlags.error },
+    { key: 'charging_id', label: 'charging', value: statusFlags.charging },
   ];
   
-  for (const { key, value } of statusMapping) {
+  // 상태 요약 로그 출력
+  const activeStates = statusMapping.filter(s => s.value).map(s => s.label);
+  console.log(`[AMR-PLC] ${robot.name} 상태: [${activeStates.join(', ') || '없음'}]`);
+  
+  for (const { key, label, value } of statusMapping) {
     const plcId = plcIds[key];
     if (plcId) {
-      await writePlcBit(plcId, value);
+      await writePlcBit(plcId, value, robot.name);
     }
   }
   
