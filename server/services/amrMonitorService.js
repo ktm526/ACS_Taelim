@@ -2,10 +2,150 @@
 
 const net = require('net');
 const { Op } = require('sequelize');
+const ModbusRTU = require("modbus-serial");
 const Robot = require('../models/Robot');
 const { Task } = require('../models');
 const { sendAndReceive } = require('./tcpTestService');
 //const { //logConnChange } = require('./connectionLogger');
+
+// PLC 연결 설정
+const PLC_HOST = process.env.MODBUS_HOST || "192.168.3.31";
+const PLC_PORT = Number.parseInt(process.env.MODBUS_PORT || "502", 10);
+const PLC_UNIT_ID = Number.parseInt(process.env.MODBUS_UNIT_ID || "1", 10);
+
+// PLC 상태 쓰기용 클라이언트
+const plcWriteClient = new ModbusRTU();
+plcWriteClient.setTimeout(2000);
+let plcConnecting = false;
+let plcConnected = false;
+let lastPlcWriteTime = new Map(); // 로봇별 마지막 PLC 쓰기 시간
+
+async function ensurePlcConnected() {
+  if (plcConnected) return true;
+  if (plcConnecting) return false;
+  plcConnecting = true;
+  try {
+    // 기존 연결 정리
+    try {
+      plcWriteClient.close();
+    } catch {}
+    
+    await plcWriteClient.connectTCP(PLC_HOST, { port: PLC_PORT });
+    plcWriteClient.setID(PLC_UNIT_ID);
+    plcConnected = true;
+    console.log(`[AMR-PLC] PLC 연결 성공: ${PLC_HOST}:${PLC_PORT}`);
+    return true;
+  } catch (e) {
+    console.warn(`[AMR-PLC] PLC 연결 실패: ${e.message}`);
+    plcConnected = false;
+    return false;
+  } finally {
+    plcConnecting = false;
+  }
+}
+
+// PLC 연결 상태 주기적 확인 및 재연결
+setInterval(async () => {
+  if (!plcConnected && !plcConnecting) {
+    await ensurePlcConnected();
+  }
+}, 5000);
+
+// PLC bit 쓰기 함수 (address.bit 형식 지원)
+async function writePlcBit(plcId, value) {
+  if (!plcId) return;
+  
+  try {
+    const connected = await ensurePlcConnected();
+    if (!connected) return;
+    
+    // address.bit 형식 파싱 (예: "5100.0" → wordAddr=5100, bitIndex=0)
+    const parts = String(plcId).split(".");
+    const wordAddr = parseInt(parts[0], 10);
+    if (isNaN(wordAddr)) return;
+    
+    const writeValue = value ? 1 : 0;
+    
+    if (parts.length === 2) {
+      // bit 쓰기: 현재 레지스터 읽고 bit 변경 후 쓰기
+      const bitIndex = parseInt(parts[1], 10);
+      if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return;
+      
+      const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
+      let wordValue = currentData.data[0];
+      
+      if (writeValue) {
+        wordValue |= (1 << bitIndex); // bit set
+      } else {
+        wordValue &= ~(1 << bitIndex); // bit clear
+      }
+      
+      await plcWriteClient.writeRegister(wordAddr, wordValue);
+    } else {
+      // word 쓰기
+      await plcWriteClient.writeRegister(wordAddr, writeValue);
+    }
+  } catch (e) {
+    console.warn(`[AMR-PLC] PLC 쓰기 실패 (${plcId}=${value}): ${e.message}`);
+    plcConnected = false; // 재연결 유도
+  }
+}
+
+// AMR 상태를 PLC에 기록 (500ms 쓰로틀링)
+const PLC_WRITE_THROTTLE_MS = 500;
+const lastStatusFlags = new Map(); // 로봇별 마지막 상태 플래그
+
+async function writeAmrStatusToPlc(robot, statusFlags) {
+  if (!robot?.plc_ids) return;
+  
+  const robotId = robot.id;
+  const now = Date.now();
+  
+  // 쓰로틀링: 마지막 쓰기 후 일정 시간 미경과 시 스킵
+  const lastWrite = lastPlcWriteTime.get(robotId) || 0;
+  if (now - lastWrite < PLC_WRITE_THROTTLE_MS) return;
+  
+  // 이전 상태와 동일하면 스킵
+  const lastFlags = lastStatusFlags.get(robotId);
+  const flagsKey = JSON.stringify(statusFlags);
+  if (lastFlags === flagsKey) return;
+  
+  let plcIds = robot.plc_ids;
+  if (typeof plcIds === 'string') {
+    try {
+      plcIds = JSON.parse(plcIds);
+    } catch {
+      return;
+    }
+  }
+  
+  // 최소 하나의 PLC ID가 설정되어 있는지 확인
+  const hasAnyPlcId = ['ready_id', 'run_id', 'hold_id', 'manual_id', 'estop_id', 'error_id', 'charging_id']
+    .some(key => plcIds[key]);
+  if (!hasAnyPlcId) return;
+  
+  // 상태 필드별 PLC 쓰기
+  const statusMapping = [
+    { key: 'ready_id', value: statusFlags.ready },
+    { key: 'run_id', value: statusFlags.run },
+    { key: 'hold_id', value: statusFlags.hold },
+    { key: 'manual_id', value: statusFlags.manual },
+    { key: 'estop_id', value: statusFlags.estop },
+    { key: 'error_id', value: statusFlags.error },
+    { key: 'charging_id', value: statusFlags.charging },
+  ];
+  
+  for (const { key, value } of statusMapping) {
+    const plcId = plcIds[key];
+    if (plcId) {
+      await writePlcBit(plcId, value);
+    }
+  }
+  
+  // 쓰기 시간 및 상태 기록
+  lastPlcWriteTime.set(robotId, now);
+  lastStatusFlags.set(robotId, flagsKey);
+}
 
 // 로봇 매니퓰레이터 TASK_STATUS 확인
 const DOOSAN_STATE_API = 4022;
@@ -151,21 +291,72 @@ function handlePush(sock, ip) {
             } else {
                 statusStr = 'unknown';
             }
+            // 태스크 상태 확인을 위해 로봇 조회
+            let robotForStatus = null;
+            let hasRunningTask = false;
+            let hasPausedTask = false;
+            
             if (statusStr === '이동' || statusStr === '대기') {
-                const robot = await Robot.findOne({ where: { name } });
-                if (robot) {
+                robotForStatus = await Robot.findOne({ where: { name } });
+                if (robotForStatus) {
                     // DB에서 태스크 확인
                     const assigned = await Task.findOne({
-                        where: { robot_id: robot.id, status: ['PENDING', 'RUNNING', 'PAUSED'] },
+                        where: { robot_id: robotForStatus.id, status: ['PENDING', 'RUNNING', 'PAUSED'] },
                     });
                     if (assigned) {
                         statusStr = '작업 중';
+                        hasRunningTask = assigned.status === 'RUNNING';
+                        hasPausedTask = assigned.status === 'PAUSED';
                     } else {
                         // 로봇 매니퓰레이터 TASK_STATUS 확인 (0이 아니면 작업 중)
-                        const doosanBusy = await checkRobotDoosanTaskStatus(robot.ip);
-                        if (doosanBusy) statusStr = '작업 중';
+                        const doosanBusy = await checkRobotDoosanTaskStatus(robotForStatus.ip);
+                        if (doosanBusy) {
+                            statusStr = '작업 중';
+                            hasRunningTask = true;
+                        }
                     }
                 }
+            } else if (!robotForStatus) {
+                robotForStatus = await Robot.findOne({ where: { name } });
+                if (robotForStatus) {
+                    const pausedTask = await Task.findOne({
+                        where: { robot_id: robotForStatus.id, status: 'PAUSED' },
+                    });
+                    hasPausedTask = !!pausedTask;
+                }
+            }
+            
+            // runningStatus로 수동 모드 판단 (1 = 수동 모드)
+            const rsRaw = typeof json.running_status === 'number'
+                ? json.running_status
+                : typeof json.runningStatus === 'number'
+                    ? json.runningStatus
+                    : 0;
+            const isManualMode = rsRaw === 1;
+            
+            // AMR 상태 플래그 계산
+            const statusFlags = {
+                // ready: 대기 상태 (비상정지X, 에러X, 충전X, 수동X, 태스크 실행X)
+                ready: !isEmergencyNow && !hasErrors && !isChargingNow && !isManualMode && !hasRunningTask && !hasPausedTask && [0, 1, 4].includes(tsRaw),
+                // run: 태스크 실행 중
+                run: hasRunningTask || tsRaw === 2,
+                // hold: 태스크 일시정지 중
+                hold: hasPausedTask,
+                // manual: 수동 모드
+                manual: isManualMode,
+                // estop: 비상정지
+                estop: isEmergencyNow,
+                // error: 에러 상태
+                error: hasErrors || [5, 6].includes(tsRaw),
+                // charging: 충전 중
+                charging: isChargingNow,
+            };
+            
+            // PLC에 상태 기록
+            if (robotForStatus) {
+                writeAmrStatusToPlc(robotForStatus, statusFlags).catch(e => {
+                    // 비동기 에러 무시 (로그는 함수 내에서 처리)
+                });
             }
 
             // extract other fields...
