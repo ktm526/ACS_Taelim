@@ -161,16 +161,9 @@ function mapStatusToWord(statusStr) {
   }
 }
 
-function timeToWord(raw) {
+function timeToWordMs(raw) {
   if (raw === null || raw === undefined || Number.isNaN(raw)) return null;
-  const num = Number(raw);
-  if (!Number.isFinite(num)) return null;
-  // ms로 들어오는 경우가 많아 초 단위로 변환
-  let seconds = Math.round(num / 1000);
-  if (seconds <= 65535) return seconds;
-  // 여전히 크면 분 단위로 축소
-  const minutes = Math.round(seconds / 60);
-  return coerceWordValue(minutes);
+  return coerceWordValue(raw);
 }
 
 async function writeAmrStatusToPlc(robot, statusFlags) {
@@ -607,13 +600,13 @@ function handlePush(sock, ip) {
             const xRaw = json.x ?? json.position?.x ?? null;
             const yRaw = json.y ?? json.position?.y ?? null;
             const angleRaw = json.angle ?? json.position?.yaw ?? null;
-            const POSITION_SCALE = 1000;
+            const POSITION_SCALE = 1000; // m -> mm
             const xWord = xRaw != null ? coerceWordValue(Number(xRaw) * POSITION_SCALE) : null;
             const yWord = yRaw != null ? coerceWordValue(Number(yRaw) * POSITION_SCALE) : null;
-            const angleWord = angleRaw != null ? coerceWordValue(Number(angleRaw) * POSITION_SCALE) : null;
+            const angleWord = angleRaw != null ? coerceWordValue(Number(angleRaw)) : null; // rad 그대로
             const batteryTempWord = coerceWordValue(json.batteryTemp ?? json.battery_temp);
-            const runTimeWord = timeToWord(json.todayTime ?? json.today_time ?? json.run_time);
-            const totalRunTimeWord = timeToWord(json.totalTime ?? json.total_time ?? json.total_run_time);
+            const runTimeWord = timeToWordMs(json.todayTime ?? json.today_time ?? json.run_time);
+            const totalRunTimeWord = timeToWordMs(json.totalTime ?? json.total_time ?? json.total_run_time);
             const infoValues = {
               name: nameWord,
               battery: batteryWord,
