@@ -120,6 +120,57 @@ async function readPlcValue(plcId) {
 const PLC_WRITE_THROTTLE_MS = 500;
 const lastStatusFlags = new Map(); // 로봇별 마지막 상태 플래그
 const desiredStatusByRobot = new Map(); // 로봇별 원하는 상태 저장
+const desiredInfoByRobot = new Map(); // 로봇별 원하는 info word 저장
+const lastInfoValues = new Map(); // 로봇별 마지막 info 값 (비교용)
+
+function coerceWordValue(raw) {
+  if (raw === null || raw === undefined || Number.isNaN(raw)) return null;
+  const num = typeof raw === "boolean" ? (raw ? 1 : 0) : Number(raw);
+  if (!Number.isFinite(num)) return null;
+  const rounded = Math.round(num);
+  if (rounded < 0) return 0;
+  if (rounded > 65535) return 65535;
+  return rounded;
+}
+
+function parseStationId(raw) {
+  if (raw === null || raw === undefined) return null;
+  const text = String(raw);
+  const digits = text.match(/\d+/g);
+  if (!digits) return null;
+  return coerceWordValue(Number(digits.join("")));
+}
+
+function mapStatusToWord(statusStr) {
+  switch (statusStr) {
+    case "대기":
+      return 0;
+    case "이동":
+      return 1;
+    case "작업 중":
+      return 2;
+    case "충전":
+      return 3;
+    case "비상정지":
+      return 4;
+    case "오류":
+      return 5;
+    default:
+      return 9;
+  }
+}
+
+function timeToWord(raw) {
+  if (raw === null || raw === undefined || Number.isNaN(raw)) return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  // ms로 들어오는 경우가 많아 초 단위로 변환
+  let seconds = Math.round(num / 1000);
+  if (seconds <= 65535) return seconds;
+  // 여전히 크면 분 단위로 축소
+  const minutes = Math.round(seconds / 60);
+  return coerceWordValue(minutes);
+}
 
 async function writeAmrStatusToPlc(robot, statusFlags) {
   if (!robot?.plc_ids) return;
@@ -184,6 +235,59 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
   lastStatusFlags.set(robotId, flagsKey);
 }
 
+async function writeAmrInfoToPlc(robot, infoValues) {
+  if (!robot?.plc_ids) return;
+  const robotId = robot.id;
+  const now = Date.now();
+  const lastWrite = lastPlcWriteTime.get(`${robotId}-info`) || 0;
+  if (now - lastWrite < 1000) return;
+
+  let plcIds = robot.plc_ids;
+  if (typeof plcIds === "string") {
+    try {
+      plcIds = JSON.parse(plcIds);
+    } catch {
+      return;
+    }
+  }
+
+  desiredInfoByRobot.set(robotId, {
+    name: robot.name,
+    plcIds,
+    infoValues,
+  });
+
+  const mapping = [
+    { key: "name_id", label: "name", value: infoValues.name },
+    { key: "battery_id", label: "battery", value: infoValues.battery },
+    { key: "error_code_id", label: "error_code", value: infoValues.error_code },
+    { key: "destination_id", label: "destination", value: infoValues.destination },
+    { key: "current_location_id", label: "current_location", value: infoValues.current_location },
+    { key: "status_id", label: "status", value: infoValues.status },
+    { key: "controller_temperature_id", label: "controller_temp", value: infoValues.controller_temp },
+    { key: "x_id", label: "x", value: infoValues.x },
+    { key: "y_id", label: "y", value: infoValues.y },
+    { key: "angle_id", label: "angle", value: infoValues.angle },
+    { key: "battery_temperature_id", label: "battery_temp", value: infoValues.battery_temp },
+    { key: "run_time_id", label: "run_time", value: infoValues.run_time },
+    { key: "total_run_time_id", label: "total_run_time", value: infoValues.total_run_time },
+  ];
+
+  const lastKey = lastInfoValues.get(robotId);
+  const nextKey = JSON.stringify(infoValues);
+  if (lastKey === nextKey) return;
+
+  for (const { key, label, value } of mapping) {
+    const plcId = plcIds[key];
+    const wordValue = coerceWordValue(value);
+    if (!plcId || wordValue === null) continue;
+    await writePlcBit(plcId, wordValue, robot.name);
+  }
+
+  lastInfoValues.set(robotId, nextKey);
+  lastPlcWriteTime.set(`${robotId}-info`, now);
+}
+
 // 주기적으로 PLC 상태와 AMR 상태를 비교 후 불일치 시 보정
 const PLC_RECONCILE_INTERVAL_MS = 1000;
 setInterval(async () => {
@@ -225,6 +329,50 @@ setInterval(async () => {
     }
     if (summaryParts.length) {
       console.log(`[AMR-PLC] ${name} PLC 상태 요약: ${summaryParts.join(", ")}`);
+    }
+
+    // info word 보정
+    const desiredInfo = desiredInfoByRobot.get(robotId);
+    if (desiredInfo?.infoValues) {
+      const infoValues = desiredInfo.infoValues;
+      const infoMapping = [
+        { key: "name_id", label: "name", value: infoValues.name },
+        { key: "battery_id", label: "battery", value: infoValues.battery },
+        { key: "error_code_id", label: "error_code", value: infoValues.error_code },
+        { key: "destination_id", label: "destination", value: infoValues.destination },
+        { key: "current_location_id", label: "current_location", value: infoValues.current_location },
+        { key: "status_id", label: "status", value: infoValues.status },
+        { key: "controller_temperature_id", label: "controller_temp", value: infoValues.controller_temp },
+        { key: "x_id", label: "x", value: infoValues.x },
+        { key: "y_id", label: "y", value: infoValues.y },
+        { key: "angle_id", label: "angle", value: infoValues.angle },
+        { key: "battery_temperature_id", label: "battery_temp", value: infoValues.battery_temp },
+        { key: "run_time_id", label: "run_time", value: infoValues.run_time },
+        { key: "total_run_time_id", label: "total_run_time", value: infoValues.total_run_time },
+      ];
+
+      const infoSummary = [];
+      for (const { key, label, value } of infoMapping) {
+        const plcId = plcIds[key];
+        const desiredValue = coerceWordValue(value);
+        if (!plcId || desiredValue === null) continue;
+        try {
+          const current = await readPlcValue(plcId);
+          if (current === null || current === undefined) continue;
+          infoSummary.push(`${label}=${Number(current)}`);
+          if (Number(current) !== desiredValue) {
+            console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
+            await writePlcBit(plcId, desiredValue, name);
+          } else {
+            console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
+          }
+        } catch (e) {
+          console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
+        }
+      }
+      if (infoSummary.length) {
+        console.log(`[AMR-PLC] ${name} PLC info 요약: ${infoSummary.join(", ")}`);
+      }
     }
   }
 }, PLC_RECONCILE_INTERVAL_MS);
@@ -438,12 +586,53 @@ function handlePush(sock, ip) {
             // 상태 계산 디버그 로그
             console.log(`[AMR-PLC][DEBUG] ${name} raw=emergency:${isEmergencyNow} charging:${isChargingNow} errors:${hasErrors} taskStatus:${tsRaw} runningStatus:${rsRaw} hasRunning:${hasRunningTask} hasPaused:${hasPausedTask}`);
             console.log(`[AMR-PLC][DEBUG] ${name} flags=ready:${statusFlags.ready} run:${statusFlags.run} hold:${statusFlags.hold} manual:${statusFlags.manual} estop:${statusFlags.estop} error:${statusFlags.error} charging:${statusFlags.charging}`);
+
+            // AMR 실시간 정보 → PLC word 값 계산
+            const nameWord = parseStationId(json.vehicle_id || json.robot_id || name);
+            const batteryWord = typeof json.battery === "number"
+              ? coerceWordValue(json.battery)
+              : typeof json.battery_level === "number"
+              ? coerceWordValue(Math.round(json.battery_level * 100))
+              : null;
+            const errorCodeWord = Array.isArray(json.errors) && json.errors.length
+              ? coerceWordValue(json.errors[0].code ?? json.errors[0].error_code ?? 1)
+              : 0;
+            const destWord = parseStationId(json.targetId || json.target_id || json.targetLabel);
+            const currentWord = parseStationId(json.current_station || json.currentStation);
+            const statusWord = mapStatusToWord(statusStr);
+            const controllerTempWord = coerceWordValue(
+              json.controllerInfo?.temp ?? json.controller_temp ?? json.controllerInfo?.temperature
+            );
+            const xRaw = json.x ?? json.position?.x ?? null;
+            const yRaw = json.y ?? json.position?.y ?? null;
+            const angleRaw = json.angle ?? json.position?.yaw ?? null;
+            const POSITION_SCALE = 1000;
+            const xWord = xRaw != null ? coerceWordValue(Number(xRaw) * POSITION_SCALE) : null;
+            const yWord = yRaw != null ? coerceWordValue(Number(yRaw) * POSITION_SCALE) : null;
+            const angleWord = angleRaw != null ? coerceWordValue(Number(angleRaw) * POSITION_SCALE) : null;
+            const batteryTempWord = coerceWordValue(json.batteryTemp ?? json.battery_temp);
+            const runTimeWord = timeToWord(json.todayTime ?? json.today_time ?? json.run_time);
+            const totalRunTimeWord = timeToWord(json.totalTime ?? json.total_time ?? json.total_run_time);
+            const infoValues = {
+              name: nameWord,
+              battery: batteryWord,
+              error_code: errorCodeWord,
+              destination: destWord,
+              current_location: currentWord,
+              status: statusWord,
+              controller_temp: controllerTempWord,
+              x: xWord,
+              y: yWord,
+              angle: angleWord,
+              battery_temp: batteryTempWord,
+              run_time: runTimeWord,
+              total_run_time: totalRunTimeWord,
+            };
             
             // PLC에 상태 기록
             if (robotForStatus) {
-                writeAmrStatusToPlc(robotForStatus, statusFlags).catch(e => {
-                    // 비동기 에러 무시 (로그는 함수 내에서 처리)
-                });
+                writeAmrStatusToPlc(robotForStatus, statusFlags).catch(() => {});
+                writeAmrInfoToPlc(robotForStatus, infoValues).catch(() => {});
             }
 
             // extract other fields...
