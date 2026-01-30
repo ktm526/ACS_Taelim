@@ -65,8 +65,6 @@ async function writePlcBit(plcId, value, robotName = '') {
     const wordAddr = parseInt(parts[0], 10);
     if (isNaN(wordAddr)) return;
     
-    const writeValue = value ? 1 : 0;
-
     if (parts.length === 2) {
       // bit 쓰기: 현재 레지스터 읽고 bit 변경 후 쓰기
       const bitText = String(parts[1]).trim();
@@ -75,6 +73,7 @@ async function writePlcBit(plcId, value, robotName = '') {
 
       const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
       let nextWord = currentData.data[0];
+      const writeValue = value ? 1 : 0;
       if (writeValue) {
         nextWord |= (1 << bitIndex);
       } else {
@@ -85,6 +84,8 @@ async function writePlcBit(plcId, value, robotName = '') {
       console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     } else {
       // word 쓰기
+      const writeValue = coerceWordValue(value);
+      if (writeValue === null) return;
       await plcWriteClient.writeRegister(wordAddr, writeValue);
       console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     }
