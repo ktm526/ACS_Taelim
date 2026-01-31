@@ -313,6 +313,18 @@ async function writeAmrInfoToPlc(robot, infoValues) {
   lastPlcWriteTime.set(`${robotId}-info`, now);
 }
 
+function queuePlcWrites(robot, statusFlags, infoValues) {
+  if (!robot) return;
+  setImmediate(() => {
+    writeAmrStatusToPlc(robot, statusFlags).catch((e) => {
+      console.warn(`[AMR-PLC] ${robot.name} 상태 쓰기 실패: ${e?.message || e}`);
+    });
+    writeAmrInfoToPlc(robot, infoValues).catch((e) => {
+      console.warn(`[AMR-PLC] ${robot.name} info 쓰기 실패: ${e?.message || e}`);
+    });
+  });
+}
+
 // 주기적으로 PLC 상태와 AMR 상태를 비교 후 불일치 시 보정
 const PLC_RECONCILE_INTERVAL_MS = 1000;
 setInterval(async () => {
@@ -655,10 +667,7 @@ function handlePush(sock, ip) {
             };
             
             // PLC에 상태 기록
-            if (robotForStatus) {
-                writeAmrStatusToPlc(robotForStatus, statusFlags).catch(() => {});
-                writeAmrInfoToPlc(robotForStatus, infoValues).catch(() => {});
-            }
+            // PLC 쓰기는 DB 업데이트와 분리해서 비동기로 수행
 
             // extract other fields...
             const location = json.current_station || json.currentStation ||
@@ -842,6 +851,8 @@ function handlePush(sock, ip) {
                 if (existing) {
                     await existing.update(payloadForDb);
                 }
+                // PLC 쓰기는 실패해도 DB 업데이트에 영향 없음
+                queuePlcWrites(existing || robotForStatus, statusFlags, infoValues);
                 lastRecTime.set(name, Date.now());
             } catch (e) {
                 console.error('[AMR Push] DB save error:', e.message);
