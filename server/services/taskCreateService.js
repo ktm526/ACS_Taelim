@@ -609,16 +609,15 @@ async function createTaskForSide(side, config, activeTasks) {
   });
 }
 
-function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
+function getAvailableOutstockerRows(outstockerSides, qty) {
   const rows = [];
   for (const side of OUT_SIDES) {
     const sideData = outstockerSides?.[side] || {};
     const amrPos = normalizeText(sideData.amr_pos);
     if (!amrPos) continue;
-    for (const row of OUT_ROWS) {
+    for (const row of [...OUT_ROWS].sort((a, b) => b - a)) {
       const rowData = sideData.rows?.[row] || {};
       const jigState = resolvePlcValue(rowData.jig_state_id);
-      const modelNo = resolvePlcValue(rowData.model_no_id);
       const maniPos = normalizeText(rowData.mani_pos);
       const workingId = normalizeText(rowData.working_id);
       const unloadDoneId = normalizeText(rowData.unload_done_id);
@@ -626,7 +625,7 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
       // mani_pos가 없으면 사용할 수 없으므로 스킵
       if (!maniPos) continue;
       
-      if (jigState === 1 && modelNo !== null && Number(modelNo) === Number(productNo)) {
+      if (jigState === 1) {
         rows.push({ 
           side, 
           row, 
@@ -634,12 +633,17 @@ function getAvailableOutstockerRows(outstockerSides, productNo, qty) {
           mani_pos: maniPos,
           working_id: workingId,
           unload_done_id: unloadDoneId,
+          model_no_value: resolvePlcValue(rowData.model_no_id),
         });
         if (rows.length >= qty) return rows;
       }
     }
   }
-  return rows;
+  // 같은 위치에서 위쪽부터(큰 row) 먼저 작업하도록 정렬
+  return rows.sort((a, b) => {
+    if (a.amr_pos !== b.amr_pos) return String(a.amr_pos).localeCompare(String(b.amr_pos));
+    return b.row - a.row;
+  });
 }
 
 /** 아웃스토커 공지그 제품별 가용 수량 합산 (jig_state=1, model_no 기준) */
@@ -737,14 +741,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
       continue;
     }
     
-    // 아웃스토커 공지그 확인
-    const rows = getAvailableOutstockerRows(config.outstockerSides, req.productNo, req.qty);
-    if (rows.length < req.qty) {
-      console.log(`[TaskCreate] 컨베이어${req.item.index}: 제품${req.productNo} 공지그 부족 (${rows.length}/${req.qty}) → 스킵`);
-      continue;
-    }
-    
-    validRequests.push({ ...req, rows });
+    validRequests.push({ ...req });
   }
   
   if (!validRequests.length) {
@@ -761,21 +758,32 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     return;
   }
 
-  // 각 컨베이어별로 필요한 아웃스토커 row 수집
+  // 아웃스토커 상단(큰 row)부터 수량만큼 픽업
+  const rows = getAvailableOutstockerRows(config.outstockerSides, totalQty);
+  if (rows.length < totalQty) {
+    console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 공지그 부족 (${rows.length}/${totalQty}) → 스킵`);
+    return;
+  }
+
+  // 각 컨베이어별로 필요한 아웃스토커 row 배정 (제품 번호 무시)
   const pickupInfos = []; // { rowInfo, conveyorItem, productNo, slotIndex, amrSlotNo }
   let slotIndex = 0;
-  
+  let rowIndex = 0;
+
   for (const req of validRequests) {
     for (let i = 0; i < req.qty; i++) {
       const amrSlotNo = slotNos[slotIndex];
+      const rowInfo = rows[rowIndex];
+      if (!rowInfo) break;
       pickupInfos.push({
-        rowInfo: req.rows[i],
+        rowInfo,
         conveyorItem: req.item,
-        productNo: req.productNo,
+        productNo: rowInfo.model_no_value ?? req.productNo ?? null,
         slotIndex: slotIndex,
         amrSlotNo: amrSlotNo, // 실제 할당된 AMR 슬롯 번호
       });
       slotIndex++;
+      rowIndex++;
     }
   }
   
