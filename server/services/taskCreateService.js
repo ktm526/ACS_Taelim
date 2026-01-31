@@ -1064,7 +1064,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   }
 
   const outputsSorted = [...grinderOutputs].sort((a, b) => {
-    if (a.grinderIndex !== b.grinderIndex) return a.grinderIndex - b.grinderIndex; // 낮은 번호부터
+    if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 높은 번호부터
     return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position);
   });
 
