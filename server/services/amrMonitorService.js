@@ -167,7 +167,10 @@ function timeToWordMs(raw) {
 }
 
 async function writeAmrStatusToPlc(robot, statusFlags) {
-  if (!robot?.plc_ids) return;
+  if (!robot?.plc_ids) {
+    console.warn(`[AMR-PLC] ${robot?.name || "unknown"} plc_ids 없음 → 상태 쓰기 스킵`);
+    return;
+  }
   
   const robotId = robot.id;
   const now = Date.now();
@@ -186,6 +189,7 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
     try {
       plcIds = JSON.parse(plcIds);
     } catch {
+      console.warn(`[AMR-PLC] ${robot.name} plc_ids 파싱 실패 → 상태 쓰기 스킵`);
       return;
     }
   }
@@ -193,7 +197,10 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
   // 최소 하나의 PLC ID가 설정되어 있는지 확인
   const hasAnyPlcId = ['ready_id', 'run_id', 'hold_id', 'manual_id', 'estop_id', 'error_id', 'charging_id']
     .some(key => plcIds[key]);
-  if (!hasAnyPlcId) return;
+  if (!hasAnyPlcId) {
+    console.warn(`[AMR-PLC] ${robot.name} 상태 PLC ID 미설정 → 상태 쓰기 스킵`);
+    return;
+  }
   
   // 원하는 상태 저장 (주기적 보정용)
   desiredStatusByRobot.set(robotId, {
@@ -230,7 +237,10 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
 }
 
 async function writeAmrInfoToPlc(robot, infoValues) {
-  if (!robot?.plc_ids) return;
+  if (!robot?.plc_ids) {
+    console.warn(`[AMR-PLC] ${robot?.name || "unknown"} plc_ids 없음 → info 쓰기 스킵`);
+    return;
+  }
   const robotId = robot.id;
   const now = Date.now();
   const lastWrite = lastPlcWriteTime.get(`${robotId}-info`) || 0;
@@ -241,6 +251,7 @@ async function writeAmrInfoToPlc(robot, infoValues) {
     try {
       plcIds = JSON.parse(plcIds);
     } catch {
+      console.warn(`[AMR-PLC] ${robot.name} plc_ids 파싱 실패 → info 쓰기 스킵`);
       return;
     }
   }
@@ -266,6 +277,26 @@ async function writeAmrInfoToPlc(robot, infoValues) {
     { key: "run_time_id", label: "run_time", value: infoValues.run_time },
     { key: "total_run_time_id", label: "total_run_time", value: infoValues.total_run_time },
   ];
+
+  const hasAnyInfoId = [
+    "name_id",
+    "battery_id",
+    "error_code_id",
+    "destination_id",
+    "current_location_id",
+    "status_id",
+    "controller_temperature_id",
+    "x_id",
+    "y_id",
+    "angle_id",
+    "battery_temperature_id",
+    "run_time_id",
+    "total_run_time_id",
+  ].some((key) => plcIds[key]);
+  if (!hasAnyInfoId) {
+    console.warn(`[AMR-PLC] ${robot.name} info PLC ID 미설정 → info 쓰기 스킵`);
+    return;
+  }
 
   const lastKey = lastInfoValues.get(robotId);
   const nextKey = JSON.stringify(infoValues);
@@ -798,7 +829,16 @@ function handlePush(sock, ip) {
             };
 
             try {
-                const existing = await Robot.findOne({ where: { ip } });
+                let existing = await Robot.findOne({ where: { ip } });
+                if (!existing) {
+                    // IP 매칭 실패 시 이름으로 재시도
+                    existing = await Robot.findOne({ where: { name } });
+                    if (existing) {
+                        console.warn(`[AMR Push] IP(${ip})로 로봇 미조회 → name(${name})로 업데이트`);
+                    } else {
+                        console.warn(`[AMR Push] 로봇 미조회 (ip=${ip}, name=${name}) → 상태 업데이트 스킵`);
+                    }
+                }
                 if (existing) {
                     await existing.update(payloadForDb);
                 }
