@@ -285,12 +285,13 @@ function getAvailableOutstockerLoadRows(outstockerSides) {
     const bypassId = normalizeText(sideData.bypass_id);
     const bypassOn = bypassId ? isSignalOn(bypassId) : false;
     if (!amrPos || bypassOn) continue;
+    // 스택형: 아래(1)부터 연속으로만 적재 가능
     for (const row of OUT_ROWS) {
       const rowData = sideData.rows?.[row] || {};
       const maniPos = normalizeText(rowData.mani_pos);
-      if (!maniPos) continue;
       const loadReadyId = normalizeText(rowData.load_ready_id);
-      if (!loadReadyId || !isSignalOn(loadReadyId)) continue;
+      const isReady = maniPos && loadReadyId && isSignalOn(loadReadyId);
+      if (!isReady) break; // 연속 적재 제한
       rows.push({
         side,
         row,
@@ -301,7 +302,11 @@ function getAvailableOutstockerLoadRows(outstockerSides) {
       });
     }
   }
-  return rows;
+  // 같은 위치에서 작업을 몰아서 수행하도록 정렬 (amr_pos → row asc)
+  return rows.sort((a, b) => {
+    if (a.amr_pos !== b.amr_pos) return String(a.amr_pos).localeCompare(String(b.amr_pos));
+    return a.row - b.row;
+  });
 }
 
 async function getActiveTasks() {
@@ -1059,7 +1064,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   }
 
   const outputsSorted = [...grinderOutputs].sort((a, b) => {
-    if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 바깥쪽부터
+    if (a.grinderIndex !== b.grinderIndex) return a.grinderIndex - b.grinderIndex; // 낮은 번호부터
     return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position);
   });
 
@@ -1068,20 +1073,22 @@ async function createTaskForGrinderOutput(config, activeTasks) {
 
   const pairs = selectedOutputs.map((output, idx) => ({
     output,
-    outRow: selectedOutRows[idx],
     amrSlotNo: interleavedSlotNos[idx],
   }));
 
   const steps = [];
 
-  // PHASE 1: 연마기에서 배출 (바깥쪽 연마기부터)
+  // PHASE 1: 연마기에서 배출 (낮은 번호 → 높은 번호, 같은 위치는 묶음)
+  let lastGrinderStation = null;
   for (const pair of pairs) {
     const { output, amrSlotNo } = pair;
-
-    steps.push({
-      type: "NAV",
-      payload: JSON.stringify({ dest: output.station }),
-    });
+    if (output.station !== lastGrinderStation) {
+      steps.push({
+        type: "NAV",
+        payload: JSON.stringify({ dest: output.station }),
+      });
+      lastGrinderStation = output.station;
+    }
 
     if (output.output_in_progress_id) {
       steps.push({
@@ -1138,6 +1145,11 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     const bStack = b.amrSlotNo < 30 ? 1 : 2;
     if (aStack !== bStack) return aStack - bStack;
     return b.amrSlotNo - a.amrSlotNo;
+  });
+
+  // 아웃스토커는 스택형 → 아래부터 적재 (정렬된 outRow를 하역 순서에 매핑)
+  sortedForUnload.forEach((pair, idx) => {
+    pair.outRow = selectedOutRows[idx];
   });
 
   let lastOutAmrPos = null;
