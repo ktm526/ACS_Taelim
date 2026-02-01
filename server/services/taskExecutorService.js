@@ -705,7 +705,7 @@ async function handleRobot(robot, tasks, hasGlobalRunningTask) {
 
     if (pendingTask) {
       // 다른 로봇이라도 RUNNING 태스크가 있으면 PENDING 태스크 시작하지 않음
-      /*
+      
       if (hasGlobalRunningTask) {
         // 10초마다만 로그 출력 (너무 자주 나오면 주석 처리)
         if (tickCount % 10 === 1) {
@@ -713,7 +713,7 @@ async function handleRobot(robot, tasks, hasGlobalRunningTask) {
         }
         return;
       }
-      */
+      
       // '대기' 또는 '작업 중' 상태일 때 태스크 시작 허용
       // (amrMonitorService에서 PENDING 태스크가 있으면 '작업 중'으로 변경하므로)
       if (robot.status === "대기" || robot.status === "작업 중") {
