@@ -37,11 +37,11 @@ async function checkRobotTaskStatus(robotIp) {
       const taskStatus = response.response.TASK_STATUS;
       const isIdle = taskStatus === "0" || taskStatus === 0;
       if (!isIdle) {
-        console.log(`[TaskCreate] 로봇(${robotIp}) TASK_STATUS=${taskStatus} (작업 중) → 태스크 발행 스킵`);
+        //console.log(`[TaskCreate] 로봇(${robotIp}) TASK_STATUS=${taskStatus} (작업 중) → 태스크 발행 스킵`);
       }
       return isIdle;
     }
-    console.warn(`[TaskCreate] 로봇(${robotIp}) doosan_state 응답 없음`);
+    //console.warn(`[TaskCreate] 로봇(${robotIp}) doosan_state 응답 없음`);
     return false;
   } catch (err) {
     console.error(`[TaskCreate] 로봇(${robotIp}) TASK_STATUS 확인 실패:`, err.message);
@@ -355,6 +355,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 슬롯 정보 없음`);
     return;
   }
+  console.log(`[TaskCreate][S1:${sideLabel}] 입력 슬롯: ${slots.map(s => `${s.key}(P${s.product_type_value ?? "?"}, mani:${s.mani_pos}, amr:${s.amr_pos})`).join(", ")}`);
 
   const pickupStations = Array.from(new Set(slots.map((s) => s.amr_pos).filter(Boolean)));
   const pickupStation = pickupStations[0];
@@ -371,6 +372,7 @@ async function createTaskForSides(sides, config, activeTasks) {
   // 제품별 투입 가능 연마기 수 (참고 로그)
   const productCounts = Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(", ") || "없음";
   //console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치: ${productCounts}`);
+  console.log(`[TaskCreate][S1:${sideLabel}] 연마기 투입가능(제품별): ${productCounts}`);
 
   // 슬롯 1~6 순서대로, 해당 제품의 투입 가능 연마기 수만큼만 선택(최대 6개)
   const availableCounts = new Map(
@@ -399,6 +401,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     return;
   }
   console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 픽업 K=${slotAssignments.length}, 연마기 투입가능: ${productCounts}`);
+  console.log(`[TaskCreate][S1:${sideLabel}] 슬롯 선택: ${slotAssignments.map(s => `${s.instocker_mani_pos}(P${s.product_type_value})`).join(", ")}`);
 
   const robot = await Robot.findOne({ where: { name: "M500-S-01" } });
   if (!robot) {
@@ -459,6 +462,7 @@ async function createTaskForSides(sides, config, activeTasks) {
   slotAssignments.forEach((assignment, idx) => {
     assignment.amrSlotNo = amrLoadOrder[idx];
   });
+  console.log(`[TaskCreate][S1:${sideLabel}] AMR 슬롯 배정: ${slotAssignments.map(s => `${s.instocker_mani_pos}→${s.amrSlotNo}`).join(", ")}`);
   
   // AMR 슬롯 → 연마기 매핑 (제품 기준, 바깥쪽 6→1, L→R 우선)
   const grinderMap = new Map(); // amrSlotNo -> target
@@ -475,8 +479,11 @@ async function createTaskForSides(sides, config, activeTasks) {
   });
   if (grinderMap.size !== slotAssignments.length) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 연마기 매칭 부족 (필요 ${slotAssignments.length} / 매칭 ${grinderMap.size})`);
+    console.log(`[TaskCreate][S1:${sideLabel}] 연마기 매칭 실패 상세: ${slotAssignments.map(s => `AMR${s.amrSlotNo}:P${s.product_type_value}`).join(", ")}`);
     return;
   }
+  console.log(`[TaskCreate][S1:${sideLabel}] AMR→연마기 매핑: ${Array.from(grinderMap.entries()).map(([slotNo, t]) => `${slotNo}→G${t.grinderIndex}-${t.position}`).join(", ")}`);
+  console.log(`[TaskCreate][S1:${sideLabel}] 하역 순서: ${unloadOrder.filter(s => grinderMap.has(s)).join(" → ")}`);
 
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
@@ -719,7 +726,7 @@ function getOutstockerProductCounts(outstockerSides) {
   
   // 디버깅: 전체 구조 확인
   if (!outstockerSides || Object.keys(outstockerSides).length === 0) {
-    console.log(`[TaskCreate] getOutstockerProductCounts: outstockerSides가 비어있음`);
+    //console.log(`[TaskCreate] getOutstockerProductCounts: outstockerSides가 비어있음`);
     return counts;
   }
   
@@ -729,7 +736,7 @@ function getOutstockerProductCounts(outstockerSides) {
     
     // 디버깅: rows 구조 확인
     if (!rowsData || typeof rowsData !== 'object') {
-      console.log(`[TaskCreate] ${side}: rows 데이터 없음 또는 객체 아님 (type: ${typeof rowsData})`);
+      //console.log(`[TaskCreate] ${side}: rows 데이터 없음 또는 객체 아님 (type: ${typeof rowsData})`);
       continue;
     }
     
@@ -755,7 +762,7 @@ function getOutstockerProductCounts(outstockerSides) {
     const m1 = normalizeText(row1.model_no_id);
     const v1 = j1 ? resolvePlcValue(j1) : null;
     const v2 = m1 ? resolvePlcValue(m1) : null;
-    console.log(`[TaskCreate] ${side} row1: jig_state_id=${j1}→${v1}, model_no_id=${m1}→${v2} | 측면 jig_ok=${sideJigOk}`);
+    //console.log(`[TaskCreate] ${side} row1: jig_state_id=${j1}→${v1}, model_no_id=${m1}→${v2} | 측면 jig_ok=${sideJigOk}`);
   }
   return counts;
 }
@@ -766,12 +773,12 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   
   if (!conveyorRequests.length) return;
   
-  console.log(`[TaskCreate] 컨베이어 요청: ${conveyorRequests.map(r => `C${r.item.index}(제품${r.productNo}, ${r.qty}개)`).join(' + ')}`);
+  //console.log(`[TaskCreate] 컨베이어 요청: ${conveyorRequests.map(r => `C${r.item.index}(제품${r.productNo}, ${r.qty}개)`).join(' + ')}`);
   
   // 로봇 확인
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
   if (!robot) {
-    console.warn("[TaskCreate] M500-S-02 로봇 없음");
+    //console.warn("[TaskCreate] M500-S-02 로봇 없음");
     return;
   }
 
@@ -779,7 +786,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
   if (existingTask) {
-    console.log(`[TaskCreate] 컨베이어 통합: M500-S-02 기존 태스크 진행 중`);
+    //console.log(`[TaskCreate] 컨베이어 통합: M500-S-02 기존 태스크 진행 중`);
     return;
   }
 
@@ -800,11 +807,11 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     const amrPos = normalizeText(req.item.amr_pos);
     const maniPos = normalizeText(req.item.mani_pos);
     if (!amrPos) {
-      console.warn(`[TaskCreate] conveyor${req.item.index}: AMR pos 없음 → 스킵`);
+      //console.warn(`[TaskCreate] conveyor${req.item.index}: AMR pos 없음 → 스킵`);
       continue;
     }
     if (!maniPos) {
-      console.warn(`[TaskCreate] conveyor${req.item.index}: Mani Pos 없음 → 스킵`);
+      //console.warn(`[TaskCreate] conveyor${req.item.index}: Mani Pos 없음 → 스킵`);
       continue;
     }
     
@@ -812,23 +819,23 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   }
   
   if (!validRequests.length) {
-    console.log(`[TaskCreate] 컨베이어 통합: 처리 가능한 요청 없음`);
+  //console.log(`[TaskCreate] 컨베이어 통합: 처리 가능한 요청 없음`);
     return;
   }
   
   // 처리 가능한 요청만으로 진행
   const totalQty = validRequests.reduce((sum, r) => sum + r.qty, 0);
-  console.log(`[TaskCreate] 컨베이어 통합: 처리 가능 ${validRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
+  //console.log(`[TaskCreate] 컨베이어 통합: 처리 가능 ${validRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
   
   if (slotNos.length < totalQty) {
-    console.warn(`[TaskCreate] 컨베이어 통합: AMR 슬롯 부족 (필요: ${totalQty}, 보유: ${slotNos.length})`);
+    //console.warn(`[TaskCreate] 컨베이어 통합: AMR 슬롯 부족 (필요: ${totalQty}, 보유: ${slotNos.length})`);
     return;
   }
 
   // 아웃스토커 상단(큰 row)부터 수량만큼 픽업
   const rows = getAvailableOutstockerRows(config.outstockerSides, totalQty);
   if (rows.length < totalQty) {
-    console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 공지그 부족 (${rows.length}/${totalQty}) → 스킵`);
+    //console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 공지그 부족 (${rows.length}/${totalQty}) → 스킵`);
     return;
   }
 
@@ -854,9 +861,9 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     }
   }
   
-  console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 픽업 ${pickupInfos.length}개 예정`);
+  //console.log(`[TaskCreate] 컨베이어 통합: 아웃스토커 픽업 ${pickupInfos.length}개 예정`);
   pickupInfos.forEach((p, i) => {
-    console.log(`  [${i+1}] ${p.rowInfo.side}-${p.rowInfo.row} → AMR슬롯${p.amrSlotNo} → C${p.conveyorItem.index}용 (제품${p.productNo})`);
+    //console.log(`  [${i+1}] ${p.rowInfo.side}-${p.rowInfo.row} → AMR슬롯${p.amrSlotNo} → C${p.conveyorItem.index}용 (제품${p.productNo})`);
   });
 
   const steps = [];
@@ -939,9 +946,9 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     return b.amrSlotNo - a.amrSlotNo; // 같은 스택 내에서 내림차순 (위부터)
   });
   
-  console.log(`[TaskCreate] 컨베이어 하역 순서:`);
+  //console.log(`[TaskCreate] 컨베이어 하역 순서:`);
   sortedForUnload.forEach((p, i) => {
-    console.log(`  [${i+1}] AMR슬롯${p.amrSlotNo} → C${p.conveyorItem.index} (제품${p.productNo})`);
+    //console.log(`  [${i+1}] AMR슬롯${p.amrSlotNo} → C${p.conveyorItem.index} (제품${p.productNo})`);
   });
   
   // 정렬된 순서대로 하역 (각 아이템의 컨베이어로 이동 후 하역)
@@ -1064,7 +1071,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   ].map(normalizeText).filter(Boolean));
   
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    console.log(`[TaskCreate] 컨베이어 통합: 기존 태스크와 중복, 생성 스킵`);
+    //console.log(`[TaskCreate] 컨베이어 통합: 기존 태스크와 중복, 생성 스킵`);
     return;
   }
 
@@ -1083,9 +1090,9 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   );
 
   const summary = validRequests.map(r => `C${r.item.index}:${r.qty}`).join('+');
-  console.log(
-    `[TaskCreate] 컨베이어 통합(${summary}): Task#${task.id} 발행 (${steps.length} steps)`
-  );
+  //console.log(
+  //  `[TaskCreate] 컨베이어 통합(${summary}): Task#${task.id} 발행 (${steps.length} steps)`
+  //);
   await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어 통합 태스크 (${summary}, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
@@ -1108,7 +1115,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
 
   const waitMs = Math.max(0, Number(config.grinder_wait_ms ?? 0));
   if (waitMs > 0) {
-    console.log(`[TaskCreate] 시나리오2: 연마기 배출 대기 ${waitMs}ms`);
+    //console.log(`[TaskCreate] 시나리오2: 연마기 배출 대기 ${waitMs}ms`);
     await sleep(waitMs);
   }
 
@@ -1129,7 +1136,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     .sort((a, b) => a - b);
 
   if (slotNos.length < maxCount) {
-    console.warn(`[TaskCreate] 시나리오2: AMR 슬롯 부족 (필요: ${maxCount}, 보유: ${slotNos.length})`);
+    //console.warn(`[TaskCreate] 시나리오2: AMR 슬롯 부족 (필요: ${maxCount}, 보유: ${slotNos.length})`);
     return;
   }
 
@@ -1305,7 +1312,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   );
 
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    console.log("[TaskCreate] 시나리오2: 기존 태스크와 리소스 중복, 생성 스킵");
+    //console.log("[TaskCreate] 시나리오2: 기존 태스크와 리소스 중복, 생성 스킵");
     return;
   }
 
@@ -1320,7 +1327,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (${steps.length} steps)`);
+  //console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (${steps.length} steps)`);
   await logTaskEvent(task.id, "TASK_CREATED", `연마기 → 아웃스토커 태스크 (${maxCount}개, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
@@ -1387,7 +1394,7 @@ async function logTaskCreateStatus(config) {
 
   lines.push("└─────────────────────────────────────────────────────────────");
   lines.push("");
-  console.log(lines.join("\n"));
+  //console.log(lines.join("\n"));
 }
 
 async function checkScenario1(config, activeTasks) {
@@ -1449,7 +1456,7 @@ async function checkConveyors(config, activeTasks) {
         : null;
     
     if (productNo === null || Number.isNaN(productNo)) {
-      console.warn(`[TaskCreate] conveyor${index}: 제품 번호 없음`);
+      //console.warn(`[TaskCreate] conveyor${index}: 제품 번호 없음`);
       continue;
     }
     
@@ -1464,7 +1471,7 @@ async function checkConveyors(config, activeTasks) {
   }
   
   try {
-    console.log(`[TaskCreate] 컨베이어 요청 감지: ${conveyorRequests.map(r => `C${r.item.index}(제품${r.productNo}, ${r.qty}개)`).join(', ')}`);
+    //console.log(`[TaskCreate] 컨베이어 요청 감지: ${conveyorRequests.map(r => `C${r.item.index}(제품${r.productNo}, ${r.qty}개)`).join(', ')}`);
     await createTaskForConveyors(conveyorRequests, config, activeTasks);
   } catch (err) {
     console.error(`[TaskCreate] 컨베이어 통합 체크 오류:`, err?.message || err);
@@ -1519,7 +1526,7 @@ function start() {
       console.error("[TaskCreate] loop error:", err?.message || err);
     }
   })();
-  console.log("[TaskCreate] service started");
+  //console.log("[TaskCreate] service started");
 }
 
 start();

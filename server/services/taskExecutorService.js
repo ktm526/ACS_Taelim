@@ -618,7 +618,7 @@ async function executeStep(step, robot) {
 async function progressTask(task, robot) {
   const steps = (task.steps || []).slice().sort((a, b) => a.seq - b.seq);
   if (!steps.length) {
-    console.log(`[Executor] Task#${task.id}: 스텝 없음 → DONE`);
+    //console.log(`[Executor] Task#${task.id}: 스텝 없음 → DONE`);
     await task.update({ status: "DONE" });
     await logTaskEvent(task.id, "TASK_DONE", "스텝 없음으로 완료", {
       robotId: robot.id,
@@ -629,7 +629,7 @@ async function progressTask(task, robot) {
   let seq = Number(task.current_seq ?? 0);
   const step = steps.find((s) => s.seq === seq);
   if (!step) {
-    console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
+    //console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
     await task.update({ status: "DONE" });
     await logTaskEvent(task.id, "TASK_DONE", `모든 ${steps.length}개 스텝 완료`, {
       robotId: robot.id,
@@ -644,7 +644,7 @@ async function progressTask(task, robot) {
   }
 
   if (step.status !== "RUNNING") {
-    console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 시작`);
+    //console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 시작`);
     await step.update({ status: "RUNNING" });
     await logTaskEvent(task.id, "STEP_STARTED", `스텝 #${seq} (${step.type}) 시작`, {
       robotId: robot.id,
@@ -670,7 +670,7 @@ async function progressTask(task, robot) {
     return;
   }
 
-  console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 완료 ✓`);
+  //console.log(`[Executor] Task#${task.id} Step#${seq}(${step.type}): 완료 ✓`);
   await step.update({ status: "DONE" });
   await logTaskEvent(task.id, "STEP_DONE", `스텝 #${seq} (${step.type}) 완료`, {
     robotId: robot.id,
@@ -682,7 +682,7 @@ async function progressTask(task, robot) {
 
   const lastSeq = steps[steps.length - 1]?.seq;
   if (seq + 1 > lastSeq) {
-    console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
+    //console.log(`[Executor] Task#${task.id}: 모든 스텝 완료 → DONE`);
     await task.update({ status: "DONE" });
     await logTaskEvent(task.id, "TASK_DONE", `모든 ${steps.length}개 스텝 완료`, {
       robotId: robot.id,
@@ -709,7 +709,7 @@ async function handleRobot(robot, tasks, hasGlobalRunningTask) {
       if (hasGlobalRunningTask) {
         // 10초마다만 로그 출력 (너무 자주 나오면 주석 처리)
         if (tickCount % 10 === 1) {
-          console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (다른 로봇의 태스크 실행 중)`);
+          //console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (다른 로봇의 태스크 실행 중)`);
         }
         return;
       }
@@ -717,7 +717,7 @@ async function handleRobot(robot, tasks, hasGlobalRunningTask) {
       // '대기' 또는 '작업 중' 상태일 때 태스크 시작 허용
       // (amrMonitorService에서 PENDING 태스크가 있으면 '작업 중'으로 변경하므로)
       if (robot.status === "대기" || robot.status === "작업 중") {
-        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps, 로봇상태: ${robot.status})`);
+        //console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps, 로봇상태: ${robot.status})`);
         await pendingTask.update({ status: "RUNNING", current_seq: 0 });
         await logTaskEvent(pendingTask.id, "TASK_STARTED", `태스크 시작 (${pendingTask.steps?.length || 0} 스텝)`, {
           robotId: robot.id,
@@ -726,7 +726,7 @@ async function handleRobot(robot, tasks, hasGlobalRunningTask) {
         await progressTask(pendingTask, robot);
       } else {
         // 로봇이 대기/작업 중 상태가 아니면 대기
-        console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: "${robot.status}" ≠ "대기/작업 중")`);
+        //console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 대기 중 (로봇 상태: "${robot.status}" ≠ "대기/작업 중")`);
       }
     }
   } catch (err) {
