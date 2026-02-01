@@ -526,7 +526,7 @@ async function createTaskForSides(sides, config, activeTasks) {
   // 제품번호 기준으로 바깥쪽(6→1) 우선 배정되어 있으며,
   // 내측 연마기 방문 후 바깥쪽 작업이 남아 있으면 LM4로 한 번 복귀 후 재개
   const orderedSlots = unloadOrder.filter((slotNo) => grinderMap.has(slotNo));
-  const resetStation = "LM4";
+  const resetStation = "LM3";
   orderedSlots.forEach((amrSlotNo, idx) => {
     const target = grinderMap.get(amrSlotNo);
     if (!target) return;
