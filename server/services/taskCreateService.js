@@ -630,7 +630,7 @@ function getAvailableOutstockerRows(outstockerSides, qty) {
     const sideData = outstockerSides?.[side] || {};
     const amrPos = normalizeText(sideData.amr_pos);
     if (!amrPos) continue;
-    for (const row of [...OUT_ROWS].sort((a, b) => b - a)) {
+    for (const row of OUT_ROWS) {
       const rowData = sideData.rows?.[row] || {};
       const jigState = resolvePlcValue(rowData.jig_state_id);
       const maniPos = normalizeText(rowData.mani_pos);
@@ -650,13 +650,12 @@ function getAvailableOutstockerRows(outstockerSides, qty) {
           unload_done_id: unloadDoneId,
           model_no_value: resolvePlcValue(rowData.model_no_id),
         });
-        if (rows.length >= qty) {
-          return sortOutstockerRowsByAmrPosAndManiPos(rows);
-        }
       }
     }
   }
-  return sortOutstockerRowsByAmrPosAndManiPos(rows);
+  // 전체 수집 후 mani_pos 오름차순 정렬 → qty개만 반환 (61→62→63→64→65→66 순)
+  const sorted = sortOutstockerRowsByAmrPosAndManiPos(rows);
+  return sorted.slice(0, qty);
 }
 
 /** 아웃스토커 공지그 제품별 가용 수량 합산 (jig_state=1, model_no 기준) */
@@ -779,15 +778,13 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   }
 
   // 각 컨베이어별로 필요한 아웃스토커 row 배정 (제품 번호 무시)
-  // amrSlotNo: 낮은 번호부터 높은 번호로 픽업 (21→22→23→31→32→33)
-  const slotNosAscending = [...slotNos].sort((a, b) => a - b).slice(0, totalQty);
   const pickupInfos = []; // { rowInfo, conveyorItem, productNo, slotIndex, amrSlotNo }
   let slotIndex = 0;
   let rowIndex = 0;
 
   for (const req of validRequests) {
     for (let i = 0; i < req.qty; i++) {
-      const amrSlotNo = slotNosAscending[slotIndex];
+      const amrSlotNo = slotNos[slotIndex];
       const rowInfo = rows[rowIndex];
       if (!rowInfo) break;
       pickupInfos.push({
