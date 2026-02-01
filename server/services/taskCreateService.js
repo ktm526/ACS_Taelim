@@ -456,17 +456,15 @@ async function createTaskForSides(sides, config, activeTasks) {
     if (stack2[i] !== undefined) interleavedSlotNos.push(stack2[i]);
   }
   
-  // slotTargets를 연마기 번호(grinderIndex) 오름차순 정렬 (1→6)
-  const slotTargetsSortedByGrinder = [...slotTargets].sort(
-    (a, b) => a.grinderIndex - b.grinderIndex
+  // 인스토커 위→아래 순서로 정렬 (slotIndex 1→6)
+  const slotTargetsSortedBySlot = [...slotTargets].sort(
+    (a, b) => a.slotIndex - b.slotIndex
   );
   
-  // 적재 순서 매핑: 연마기 번호 순으로 interleaved 슬롯에 배치
-  // grinderIndex 1 → interleavedSlotNos[0] (21)
-  // grinderIndex 2 → interleavedSlotNos[1] (31)
-  // ...
+  // 적재 순서 매핑: 인스토커 위→아래 순서대로 AMR 슬롯(21,31,22,32,23,33)
+  // L1→21, L2→31, L3→22, L4→32, L5→23, L6→33
   const loadingMap = new Map(); // instocker_mani_pos → { amrSlotNo, product, target }
-  slotTargetsSortedByGrinder.forEach((target, idx) => {
+  slotTargetsSortedBySlot.forEach((target, idx) => {
     const amrSlotNo = interleavedSlotNos[idx];
     loadingMap.set(target.instocker_mani_pos, {
       amrSlotNo,
