@@ -260,6 +260,8 @@ function buildAvailableGrinderPositions(grinders) {
 function buildAvailableGrinderOutputPositions(grinders) {
   const outputs = [];
   grinders.forEach((grinder, gIdx) => {
+    const bypassId = normalizeText(grinder?.bypass_id);
+    if (bypassId && isSignalOn(bypassId)) return;
     const productTypeValue = resolvePlcValue(grinder?.product_type_id);
     if (productTypeValue === null) return;
     POSITIONS.forEach((pos) => {
@@ -322,6 +324,24 @@ async function getActiveTasks() {
     where: { status: ["PENDING", "RUNNING", "PAUSED"] },
     include: [{ model: TaskStep, as: "steps" }],
   });
+}
+
+function computeScenario1PickupCount(side, config) {
+  const slots = getSideSlots(config.instockerSlots, side);
+  if (!slots.length) return 0;
+  const availableByProduct = buildAvailableGrinderPositions(config.grinders);
+  let count = 0;
+  for (const slot of slots) {
+    if (count >= 6) break;
+    if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) break;
+    const productKey = String(slot.product_type_value);
+    const list = availableByProduct.get(productKey) || [];
+    if (!list.length) break;
+    list.shift();
+    availableByProduct.set(productKey, list);
+    count += 1;
+  }
+  return count;
 }
 
 async function createTaskForSides(sides, config, activeTasks) {
@@ -1076,7 +1096,11 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   const latestConfig = await loadConfig();
   const grinderOutputs = buildAvailableGrinderOutputPositions(latestConfig.grinders || []);
   const outRows = getAvailableOutstockerLoadRows(latestConfig.outstockerSides || {});
-  const maxCount = Math.min(6, grinderOutputs.length, outRows.length);
+  const nonBypassGrinderCount = (latestConfig.grinders || []).filter((g) => {
+    const bypassId = normalizeText(g?.bypass_id);
+    return !bypassId || !isSignalOn(bypassId);
+  }).length;
+  const maxCount = Math.min(6, grinderOutputs.length, outRows.length, nonBypassGrinderCount);
   if (!maxCount) return;
 
   const robotSlots = safeParse(robot.slots, []);
@@ -1100,7 +1124,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   }
 
   const outputsSorted = [...grinderOutputs].sort((a, b) => {
-    if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 높은 번호부터
+    if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 위에서부터(높은 번호)
     return POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position);
   });
 
@@ -1358,7 +1382,13 @@ async function checkScenario1(config, activeTasks) {
       return workId && isSignalOn(workId);
     });
     if (!activeSides.length) return;
-    await createTaskForSides(activeSides, cfg, activeTasks);
+    if (activeSides.length === 1) {
+      await createTaskForSides(activeSides, cfg, activeTasks);
+      return;
+    }
+    // L/R 둘 다 ON인 경우: L 우선
+    console.log(`[TaskCreate] 시나리오1(L/R) 조건: L/R 모두 ON → L 선택`);
+    await createTaskForSides(["L"], cfg, activeTasks);
   } catch (err) {
     //console.error(`[TaskCreate] 시나리오1 체크 오류:`, err?.message || err);
   } finally {
