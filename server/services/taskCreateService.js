@@ -77,7 +77,7 @@ const CHECK_INTERVAL_MS = 1000;
 const CONFIG_TTL_MS = 2000;
 const STATUS_LOG_INTERVAL_MS = 5000; // 5초마다 상태 출력
 
-// 시나리오 테스트용: AMR1(M1000) 비활성화, AMR2(M500-S-02)만 동작
+// 시나리오 테스트용: AMR1(M500-S-01) 비활성화, AMR2(M500-S-02)만 동작
 // .env에 TEST_AMR1_DISABLED=1 설정 시 AMR1 태스크 생성 스킵
 const TEST_AMR1_DISABLED =
   process.env.TEST_AMR1_DISABLED === "1" ||
@@ -369,9 +369,9 @@ async function createTaskForSide(side, config, activeTasks) {
   }
   console.log(`[TaskCreate] 시나리오1(${side}) 조건: 픽업 K=${slotTargets.length}, 연마기 투입가능: ${productCounts}`);
 
-  const robot = await Robot.findOne({ where: { name: "M1000" } });
+  const robot = await Robot.findOne({ where: { name: "M500-S-01" } });
   if (!robot) {
-    console.log(`[TaskCreate] 시나리오1(${side}) 조건: M1000 로봇 없음`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: M500-S-01 로봇 없음`);
     return;
   }
   //console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
@@ -1334,7 +1334,7 @@ async function logTaskCreateStatus(config) {
 
 async function checkSide(side, config, activeTasks) {
   if (sideLock[side]) return;
-  if (TEST_AMR1_DISABLED) return; // 시나리오 테스트: AMR1(M1000) 비활성화
+  if (TEST_AMR1_DISABLED) return; // 시나리오 테스트: AMR1(M500-S-01) 비활성화
   sideLock[side] = true;
   try {
     const cfg = config || (await loadConfig());
