@@ -321,13 +321,13 @@ async function createTaskForSide(side, config, activeTasks) {
   
   const slots = getSideSlots(config.instockerSlots, side);
   if (slots.length === 0) {
-    //console.log(`[TaskCreate] ${side}: 슬롯 정보 없음`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: 슬롯 정보 없음`);
     return;
   }
 
   const pickupStation = slots[0]?.amr_pos;
   if (!pickupStation) {
-    //console.warn(`[TaskCreate] ${side}: L/R 1번 칸 AMR pos 없음`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: pickupStation 없음`);
     return;
   }
   //console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
@@ -364,14 +364,14 @@ async function createTaskForSide(side, config, activeTasks) {
   }
 
   if (slotTargets.length === 0) {
-    //console.log(`[TaskCreate] ${side}: 매칭된 슬롯 없음 (연마기 투입가능: ${productCounts})`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: 매칭된 슬롯 없음 (연마기 투입가능: ${productCounts})`);
     return;
   }
-  console.log(`[TaskCreate] ${side}: 픽업 수량 K=${slotTargets.length} (연마기 투입가능 기준, 최대 6)`);
+  console.log(`[TaskCreate] 시나리오1(${side}) 조건: 픽업 K=${slotTargets.length}, 연마기 투입가능: ${productCounts}`);
 
   const robot = await Robot.findOne({ where: { name: "M1000" } });
   if (!robot) {
-    //console.warn("[TaskCreate] M1000 로봇 없음");
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: M1000 로봇 없음`);
     return;
   }
   //console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
@@ -384,7 +384,7 @@ async function createTaskForSide(side, config, activeTasks) {
     .sort((a, b) => a - b);
   
   if (slotNos.length < slotTargets.length) {
-    console.warn(`[TaskCreate] ${side}: AMR 슬롯 부족 (필요: ${slotTargets.length}, 보유: ${slotNos.length})`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: AMR 슬롯 부족 (필요 ${slotTargets.length} / 보유 ${slotNos.length})`);
     return;
   }
 
@@ -446,7 +446,7 @@ async function createTaskForSide(side, config, activeTasks) {
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
   if (existingTask) {
-    //console.log(`[TaskCreate] ${side}: M1000 기존 태스크 진행 중 (Task#${existingTask.id}, ${existingTask.status})`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: 기존 태스크 진행 중 (Task#${existingTask.id}, ${existingTask.status})`);
     return;
   }
 
@@ -583,13 +583,14 @@ async function createTaskForSide(side, config, activeTasks) {
     ]).filter(Boolean)
   );
   if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    //console.log(`[TaskCreate] ${side}: 기존 태스크와 스테이션/PLC 중복, 생성 스킵`);
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: 리소스 중복(스테이션/PLC) → 생성 스킵`);
     return;
   }
 
   // 로봇 매니퓰레이터 TASK_STATUS 확인 (0이어야 발행)
   const robotReady = await checkRobotTaskStatus(robot.ip);
   if (!robotReady) {
+    console.log(`[TaskCreate] 시나리오1(${side}) 조건: 로봇 TASK_STATUS 유휴 아님 → 생성 스킵`);
     return;
   }
 

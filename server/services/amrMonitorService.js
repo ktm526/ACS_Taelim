@@ -81,13 +81,13 @@ async function writePlcBit(plcId, value, robotName = '') {
       }
 
       await plcWriteClient.writeRegister(wordAddr, nextWord);
-      console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
+      //console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     } else {
       // word 쓰기
       const writeValue = coerceWordValue(value);
       if (writeValue === null) return;
       await plcWriteClient.writeRegister(wordAddr, writeValue);
-      console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
+      //console.log(`[AMR-PLC] ${robotName ? robotName + ' ' : ''}쓰기: ${plcId} = ${writeValue}`);
     }
   } catch (e) {
     console.warn(`[AMR-PLC] PLC 쓰기 실패 (${plcId}=${value}): ${e.message}`);
@@ -215,7 +215,7 @@ async function writeAmrStatusToPlc(robot, statusFlags) {
   
   // 상태 요약 로그 출력
   const activeStates = statusMapping.filter(s => s.value).map(s => s.label);
-  console.log(`[AMR-PLC] ${robot.name} 상태: [${activeStates.join(', ') || '없음'}]`);
+  //console.log(`[AMR-PLC] ${robot.name} 상태: [${activeStates.join(', ') || '없음'}]`);
   
   for (const { key, label, value } of statusMapping) {
     const plcId = plcIds[key];
@@ -312,17 +312,17 @@ setInterval(async () => {
         if (current === null || current === undefined) continue;
         summaryParts.push(`${label}=${Number(current)}`);
         if (Number(current) !== desiredValue) {
-          console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
+          //console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
           await writePlcBit(plcId, desiredValue, name);
         } else {
-          console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
+          //console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
         }
       } catch (e) {
-        console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
+        //console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
       }
     }
     if (summaryParts.length) {
-      console.log(`[AMR-PLC] ${name} PLC 상태 요약: ${summaryParts.join(", ")}`);
+      //console.log(`[AMR-PLC] ${name} PLC 상태 요약: ${summaryParts.join(", ")}`);
     }
 
     // info word 보정
@@ -355,17 +355,17 @@ setInterval(async () => {
           if (current === null || current === undefined) continue;
           infoSummary.push(`${label}=${Number(current)}`);
           if (Number(current) !== desiredValue) {
-            console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
+            //console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
             await writePlcBit(plcId, desiredValue, name);
           } else {
-            console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
+            //console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
           }
         } catch (e) {
           console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
         }
       }
       if (infoSummary.length) {
-        console.log(`[AMR-PLC] ${name} PLC info 요약: ${infoSummary.join(", ")}`);
+        //console.log(`[AMR-PLC] ${name} PLC info 요약: ${infoSummary.join(", ")}`);
       }
     }
   }
@@ -578,8 +578,8 @@ function handlePush(sock, ip) {
             };
             
             // 상태 계산 디버그 로그
-            console.log(`[AMR-PLC][DEBUG] ${name} raw=emergency:${isEmergencyNow} charging:${isChargingNow} errors:${hasErrors} taskStatus:${tsRaw} runningStatus:${rsRaw} hasRunning:${hasRunningTask} hasPaused:${hasPausedTask}`);
-            console.log(`[AMR-PLC][DEBUG] ${name} flags=ready:${statusFlags.ready} run:${statusFlags.run} hold:${statusFlags.hold} manual:${statusFlags.manual} estop:${statusFlags.estop} error:${statusFlags.error} charging:${statusFlags.charging}`);
+            //console.log(`[AMR-PLC][DEBUG] ${name} raw=emergency:${isEmergencyNow} charging:${isChargingNow} errors:${hasErrors} taskStatus:${tsRaw} runningStatus:${rsRaw} hasRunning:${hasRunningTask} hasPaused:${hasPausedTask}`);
+            //console.log(`[AMR-PLC][DEBUG] ${name} flags=ready:${statusFlags.ready} run:${statusFlags.run} hold:${statusFlags.hold} manual:${statusFlags.manual} estop:${statusFlags.estop} error:${statusFlags.error} charging:${statusFlags.charging}`);
 
             // AMR 실시간 정보 → PLC word 값 계산
             const nameWord = parseStationId(json.vehicle_id || json.robot_id || name);
