@@ -609,6 +609,21 @@ async function createTaskForSide(side, config, activeTasks) {
   });
 }
 
+/** mani_pos 오름차순 비교 (낮은 순서 먼저) - 아웃스토커 픽업 순서용 */
+function compareManiPosAsc(a, b) {
+  const maniA = Number(a.mani_pos) || 0;
+  const maniB = Number(b.mani_pos) || 0;
+  return maniA - maniB;
+}
+
+/** 아웃스토커 rows 정렬: amr_pos 그룹 후 mani_pos 오름차순 */
+function sortOutstockerRowsByAmrPosAndManiPos(rows) {
+  return rows.sort((a, b) => {
+    if (a.amr_pos !== b.amr_pos) return String(a.amr_pos).localeCompare(String(b.amr_pos));
+    return compareManiPosAsc(a, b);
+  });
+}
+
 function getAvailableOutstockerRows(outstockerSides, qty) {
   const rows = [];
   for (const side of OUT_SIDES) {
@@ -635,15 +650,13 @@ function getAvailableOutstockerRows(outstockerSides, qty) {
           unload_done_id: unloadDoneId,
           model_no_value: resolvePlcValue(rowData.model_no_id),
         });
-        if (rows.length >= qty) return rows;
+        if (rows.length >= qty) {
+          return sortOutstockerRowsByAmrPosAndManiPos(rows);
+        }
       }
     }
   }
-  // 같은 위치에서 위쪽부터(큰 row) 먼저 작업하도록 정렬
-  return rows.sort((a, b) => {
-    if (a.amr_pos !== b.amr_pos) return String(a.amr_pos).localeCompare(String(b.amr_pos));
-    return b.row - a.row;
-  });
+  return sortOutstockerRowsByAmrPosAndManiPos(rows);
 }
 
 /** 아웃스토커 공지그 제품별 가용 수량 합산 (jig_state=1, model_no 기준) */
