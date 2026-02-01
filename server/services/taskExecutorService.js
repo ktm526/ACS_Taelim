@@ -595,6 +595,7 @@ async function executeStep(step, robot) {
     if (!payload.PLC_BIT) throw new Error("PLC_WRITE id missing");
     console.log(`${stepLabel}: PLC_WRITE ${payload.PLC_BIT}=${payload.PLC_DATA}`);
     await writePlc(payload.PLC_BIT, payload.PLC_DATA);
+    await delay(5000);
     console.log(`${stepLabel}: PLC_WRITE 완료`);
     return true;
   }
