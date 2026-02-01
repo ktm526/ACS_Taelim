@@ -485,23 +485,14 @@ async function createTaskForSides(sides, config, activeTasks) {
 
   const steps = [];
 
-  // 인스토커 -> AMR 적재 (AMR 슬롯 순서: 21,31,22,32,23,33)
+  // 인스토커 -> AMR 적재 (인스토커 위→아래 순서 유지)
   // 각 인스토커 슬롯의 제품은 연마기 번호에 맞는 AMR 슬롯에 적재
   // VISION_CHECK: 스테이션 이동 직후 첫 픽업만 1, 이후는 0
-  const slotByMani = new Map(slots.map((s) => [String(s.mani_pos), s]));
-  const pickupItems = interleavedSlotNos
-    .map((amrSlotNo) => {
-      const entry = Array.from(loadingMap.values()).find((m) => m.amrSlotNo === amrSlotNo);
-      if (!entry) return null;
-      const slot = slotByMani.get(String(entry.target.instocker_mani_pos));
-      if (!slot) return null;
-      return { slot, amrSlotNo, target: entry.target };
-    })
-    .filter(Boolean);
-
   let lastPickupStation = null;
-  for (const item of pickupItems) {
-    const { slot, amrSlotNo, target } = item;
+  slots.forEach((slot) => {
+    const mapping = loadingMap.get(slot.mani_pos);
+    if (!mapping) return;
+    const amrSlotNo = mapping.amrSlotNo;
     const currentStation = slot.amr_pos;
     if (currentStation && currentStation !== lastPickupStation) {
       steps.push({ type: "NAV", payload: JSON.stringify({ dest: currentStation }) });
@@ -519,8 +510,8 @@ async function createTaskForSides(sides, config, activeTasks) {
       }),
     });
     if (currentStation) lastPickupStation = currentStation;
-    console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${target.grinderIndex}용, VISION=${visionCheck})`);
-  }
+    console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
+  });
 
   // AMR -> 연마기 투입 (적재 순서의 역순: 33, 23, 32, 22, 31, 21)
   const unloadOrder = [...interleavedSlotNos].reverse();
