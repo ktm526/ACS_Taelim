@@ -766,13 +766,15 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   }
 
   // 각 컨베이어별로 필요한 아웃스토커 row 배정 (제품 번호 무시)
+  // amrSlotNo: 낮은 번호부터 높은 번호로 픽업 (21→22→23→31→32→33)
+  const slotNosAscending = [...slotNos].sort((a, b) => a - b).slice(0, totalQty);
   const pickupInfos = []; // { rowInfo, conveyorItem, productNo, slotIndex, amrSlotNo }
   let slotIndex = 0;
   let rowIndex = 0;
 
   for (const req of validRequests) {
     for (let i = 0; i < req.qty; i++) {
-      const amrSlotNo = slotNos[slotIndex];
+      const amrSlotNo = slotNosAscending[slotIndex];
       const rowInfo = rows[rowIndex];
       if (!rowInfo) break;
       pickupInfos.push({
@@ -1267,7 +1269,7 @@ async function logTaskCreateStatus(config) {
   const lines = [];
   lines.push("");
   lines.push("┌─────────────────────────────────────────────────────────────");
-  lines.push("│ [TaskCreate] 시나리오 3번 (컨베이어 → 아웃스토커) 조건 상태");
+  lines.push("│ [TaskCreate] 시나리오 3번 (아웃스토커 → 컨베이어) 조건 상태");
   lines.push("├─────────────────────────────────────────────────────────────");
 
   const robotM500 = await Robot.findOne({ where: { name: "M500-S-02" } });
