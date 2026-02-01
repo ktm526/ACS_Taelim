@@ -490,16 +490,15 @@ async function createTaskForSides(sides, config, activeTasks) {
     console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
   });
 
-  // AMR -> 연마기 투입 (연마기 6→5→4→3→2→1 순서)
-  // 스택 top부터 하역: interleaved 역순으로 (33, 23, 32, 22, 31, 21)
-  const slotTargetsDesc = [...slotTargetsSortedByGrinder].reverse(); // 연마기 6→1
-  slotTargetsDesc.forEach((target, idx) => {
-    // 해당 연마기용 AMR 슬롯 찾기
-    const mappingEntry = Array.from(loadingMap.values()).find(
-      m => m.target === target
-    );
-    if (!mappingEntry) return;
-    const amrSlotNo = mappingEntry.amrSlotNo;
+  // AMR -> 연마기 투입 (적재 순서의 역순: 33, 23, 32, 22, 31, 21)
+  const unloadOrder = [...interleavedSlotNos].reverse();
+  const targetByAmrSlot = new Map();
+  loadingMap.forEach((value) => {
+    targetByAmrSlot.set(value.amrSlotNo, value.target);
+  });
+  unloadOrder.forEach((amrSlotNo) => {
+    const target = targetByAmrSlot.get(amrSlotNo);
+    if (!target) return;
     
     // 1. 연마기 위치로 이동
     steps.push({
