@@ -1425,9 +1425,11 @@ function start() {
       await logTaskCreateStatus(config);
       
       // 기존 활성 태스크가 있으면 새 작업 발행하지 않음
+      /*
       if (activeTasks.length > 0) {
         return;
       }
+      */
       
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
@@ -1446,9 +1448,11 @@ function start() {
       await logTaskCreateStatus(config);
       
       // 기존 활성 태스크가 있으면 새 작업 발행하지 않음
+      /*
       if (activeTasks.length > 0) {
         return;
       }
+      */
       
       SIDES.forEach((side) => {
         checkSide(side, config, activeTasks);
