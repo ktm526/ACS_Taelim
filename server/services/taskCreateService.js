@@ -341,7 +341,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     return;
   }
   if (pickupStations.length > 1) {
-    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 경고: pickupStation 다중 (${pickupStations.join(", ")}) → 첫 값 사용`);
+    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 정보: pickupStation 다중 (${pickupStations.join(", ")})`);
   }
   //console.log(`[TaskCreate] ${side}: 픽업 스테이션=${pickupStation}`);
 
@@ -464,18 +464,20 @@ async function createTaskForSides(sides, config, activeTasks) {
   }
 
   const steps = [];
-  steps.push({ type: "NAV", payload: JSON.stringify({ dest: pickupStation }) });
 
   // 인스토커 -> AMR 적재 (인스토커 1칸 ~ 6칸 순서대로)
   // 각 인스토커 슬롯의 제품은 연마기 번호에 맞는 AMR 슬롯에 적재
-  // VISION_CHECK: 첫 번째 픽업만 1, 이후는 0
-  let instockerPickupCount = 0;
+  // VISION_CHECK: 스테이션 이동 직후 첫 픽업만 1, 이후는 0
+  let lastPickupStation = null;
   slots.forEach((slot) => {
     const mapping = loadingMap.get(slot.mani_pos);
     if (!mapping) return;
     const amrSlotNo = mapping.amrSlotNo;
-    const visionCheck = instockerPickupCount === 0 ? 1 : 0;
-    instockerPickupCount++;
+    const currentStation = slot.amr_pos;
+    if (currentStation && currentStation !== lastPickupStation) {
+      steps.push({ type: "NAV", payload: JSON.stringify({ dest: currentStation }) });
+    }
+    const visionCheck = currentStation !== lastPickupStation ? 1 : 0;
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
@@ -487,6 +489,7 @@ async function createTaskForSides(sides, config, activeTasks) {
         AMR_SLOT_NO: amrSlotNo,
       }),
     });
+    if (currentStation) lastPickupStation = currentStation;
     console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
   });
 
