@@ -513,19 +513,19 @@ async function createTaskForSides(sides, config, activeTasks) {
     console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
   });
 
-  // AMR -> 연마기 투입 (연마기 6→1, 같은 연마기는 AMR 상단 슬롯부터)
-  const targetsByGrinder = new Map();
+  // AMR -> 연마기 투입 (하역 순서: 33, 23, 32, 22, 31, 21)
+  // 제품번호 기준으로 바깥쪽(6→1) 우선 배정되어 있으며,
+  // 내측 연마기 방문 후 바깥쪽 작업이 남아 있으면 LM4로 한 번 복귀 후 재개
+  const unloadOrder = [...interleavedSlotNos].reverse(); // 33,23,32,22,31,21
+  const targetByAmrSlot = new Map();
   loadingMap.forEach((value) => {
-    const list = targetsByGrinder.get(value.target.grinderIndex) || [];
-    list.push({ target: value.target, amrSlotNo: value.amrSlotNo });
-    targetsByGrinder.set(value.target.grinderIndex, list);
+    targetByAmrSlot.set(value.amrSlotNo, value.target);
   });
-  const grinderOrder = Array.from(targetsByGrinder.keys()).sort((a, b) => b - a); // 6→1
-  grinderOrder.forEach((grinderIndex) => {
-    const entries = targetsByGrinder.get(grinderIndex) || [];
-    // AMR 상단 슬롯부터 하역
-    entries.sort((a, b) => b.amrSlotNo - a.amrSlotNo);
-    entries.forEach(({ target, amrSlotNo }) => {
+  const orderedSlots = unloadOrder.filter((slotNo) => targetByAmrSlot.has(slotNo));
+  const resetStation = "LM4";
+  orderedSlots.forEach((amrSlotNo, idx) => {
+    const target = targetByAmrSlot.get(amrSlotNo);
+    if (!target) return;
     
     // 1. 연마기 위치로 이동
     steps.push({
@@ -603,7 +603,23 @@ async function createTaskForSides(sides, config, activeTasks) {
     }
     
     console.log(`[TaskCreate] ${sideLabel}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.grinderPosition}`);
-    });
+
+    // 이후 남은 작업 중 더 바깥쪽(번호 큰) 연마기가 있으면 LM4로 한번 이동
+    let remainingMax = null;
+    for (let i = idx + 1; i < orderedSlots.length; i += 1) {
+      const nextTarget = targetByAmrSlot.get(orderedSlots[i]);
+      if (!nextTarget) continue;
+      if (remainingMax === null || nextTarget.grinderIndex > remainingMax) {
+        remainingMax = nextTarget.grinderIndex;
+      }
+    }
+    if (remainingMax !== null && remainingMax > target.grinderIndex) {
+      steps.push({
+        type: "NAV",
+        payload: JSON.stringify({ dest: resetStation }),
+      });
+      console.log(`[TaskCreate] ${sideLabel}: 내측 하역 후 ${resetStation} 이동 (다음 바깥쪽 연마기 ${remainingMax})`);
+    }
   });
 
   if (robot.home_station) {
