@@ -534,7 +534,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     // 1. 연마기 위치로 이동
     steps.push({
       type: "NAV",
-      payload: JSON.stringify({ dest: target.grinder_station }),
+      payload: JSON.stringify({ dest: target.station }),
     });
     
     // 2. 도착 후 안전위치 = 0
@@ -565,7 +565,7 @@ async function createTaskForSides(sides, config, activeTasks) {
       payload: JSON.stringify({
         CMD_ID: 1,
         CMD_FROM: amrSlotNo,
-        CMD_TO: Number(target.grinder_mani_pos),
+        CMD_TO: Number(target.mani_pos),
         VISION_CHECK: 0,
         PRODUCT_NO: target.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
