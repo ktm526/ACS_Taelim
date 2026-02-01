@@ -221,6 +221,8 @@ function getSideSlots(slots, side) {
 function buildAvailableGrinderPositions(grinders) {
   const byProduct = new Map();
   grinders.forEach((grinder, gIdx) => {
+    const bypassId = normalizeText(grinder?.bypass_id);
+    if (bypassId && isSignalOn(bypassId)) return;
     const productTypeValue = resolvePlcValue(grinder?.product_type_id);
     if (productTypeValue === null) return;
     const productKey = String(productTypeValue);
@@ -511,15 +513,19 @@ async function createTaskForSides(sides, config, activeTasks) {
     console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
   });
 
-  // AMR -> 연마기 투입 (적재 순서의 역순: 33, 23, 32, 22, 31, 21)
-  const unloadOrder = [...interleavedSlotNos].reverse();
-  const targetByAmrSlot = new Map();
+  // AMR -> 연마기 투입 (연마기 6→1, 같은 연마기는 AMR 상단 슬롯부터)
+  const targetsByGrinder = new Map();
   loadingMap.forEach((value) => {
-    targetByAmrSlot.set(value.amrSlotNo, value.target);
+    const list = targetsByGrinder.get(value.target.grinderIndex) || [];
+    list.push({ target: value.target, amrSlotNo: value.amrSlotNo });
+    targetsByGrinder.set(value.target.grinderIndex, list);
   });
-  unloadOrder.forEach((amrSlotNo) => {
-    const target = targetByAmrSlot.get(amrSlotNo);
-    if (!target) return;
+  const grinderOrder = Array.from(targetsByGrinder.keys()).sort((a, b) => b - a); // 6→1
+  grinderOrder.forEach((grinderIndex) => {
+    const entries = targetsByGrinder.get(grinderIndex) || [];
+    // AMR 상단 슬롯부터 하역
+    entries.sort((a, b) => b.amrSlotNo - a.amrSlotNo);
+    entries.forEach(({ target, amrSlotNo }) => {
     
     // 1. 연마기 위치로 이동
     steps.push({
@@ -597,6 +603,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     }
     
     console.log(`[TaskCreate] ${sideLabel}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.grinderPosition}`);
+    });
   });
 
   if (robot.home_station) {
