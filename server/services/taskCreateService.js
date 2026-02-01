@@ -606,7 +606,7 @@ async function createTaskForSides(sides, config, activeTasks) {
       });
     }
     
-    console.log(`[TaskCreate] ${sideLabel}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.grinderPosition}`);
+    console.log(`[TaskCreate] ${sideLabel}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.position}`);
 
     // 다음 작업이 더 바깥쪽 연마기면 LM4로 한번 이동
     let nextTarget = null;
