@@ -372,37 +372,33 @@ async function createTaskForSides(sides, config, activeTasks) {
   const productCounts = Array.from(availableByProduct.entries()).map(([k, v]) => `제품${k}:${v.length}개`).join(", ") || "없음";
   //console.log(`[TaskCreate] ${side}: 연마기 투입가능 위치: ${productCounts}`);
 
-  // 슬롯 1~6 순서대로, 해당 제품의 투입 가능 연마기가 있으면 매칭(최대 6개). 없으면 중단.
-  const slotTargets = [];
+  // 슬롯 1~6 순서대로, 해당 제품의 투입 가능 연마기 수만큼만 선택(최대 6개)
+  const availableCounts = new Map(
+    Array.from(availableByProduct.entries()).map(([k, v]) => [k, v.length])
+  );
+  const slotAssignments = [];
   for (const slot of slots) {
-    if (slotTargets.length >= 6) break;
+    if (slotAssignments.length >= 6) break;
     if (!slot.product_type_id || slot.product_type_value === null || !slot.mani_pos) break;
     const productKey = String(slot.product_type_value);
-    const list = availableByProduct.get(productKey) || [];
-    if (list.length === 0) break;
-    const next = list.shift();
-    slotTargets.push({
+    const count = availableCounts.get(productKey) || 0;
+    if (count <= 0) break;
+    availableCounts.set(productKey, count - 1);
+    slotAssignments.push({
       slotIndex: slot.index,
       product_type_id: slot.product_type_id,
       product_type_value: slot.product_type_value,
       instocker_mani_pos: slot.mani_pos,
-      grinder_station: next.station,
-      grinder_mani_pos: next.mani_pos,
-      grinderIndex: next.grinderIndex,
-      grinderPosition: next.position,
-      safe_pos_id: next.safe_pos_id,
-      input_in_progress_id: next.input_in_progress_id,
-      input_done_id: next.input_done_id,
+      instocker_amr_pos: slot.amr_pos,
     });
-    availableByProduct.set(productKey, list);
-    console.log(`[TaskCreate] ${sideLabel}: 슬롯 ${slot.key}(제품${productKey}) → 연마기 ${next.grinderIndex}-${next.position}`);
+    console.log(`[TaskCreate] ${sideLabel}: 슬롯 ${slot.key}(제품${productKey}) → AMR 슬롯 후보`);
   }
 
-  if (slotTargets.length === 0) {
+  if (slotAssignments.length === 0) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 매칭된 슬롯 없음 (연마기 투입가능: ${productCounts})`);
     return;
   }
-  console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 픽업 K=${slotTargets.length}, 연마기 투입가능: ${productCounts}`);
+  console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 픽업 K=${slotAssignments.length}, 연마기 투입가능: ${productCounts}`);
 
   const robot = await Robot.findOne({ where: { name: "M500-S-01" } });
   if (!robot) {
@@ -418,8 +414,8 @@ async function createTaskForSides(sides, config, activeTasks) {
     .filter((n) => n != null)
     .sort((a, b) => a - b);
   
-  if (slotNos.length < slotTargets.length) {
-    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: AMR 슬롯 부족 (필요 ${slotTargets.length} / 보유 ${slotNos.length})`);
+  if (slotNos.length < slotAssignments.length) {
+    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: AMR 슬롯 부족 (필요 ${slotAssignments.length} / 보유 ${slotNos.length})`);
     return;
   }
 
@@ -458,22 +454,29 @@ async function createTaskForSides(sides, config, activeTasks) {
     if (stack2[i] !== undefined) interleavedSlotNos.push(stack2[i]);
   }
   
-  // 인스토커 위→아래 순서로 정렬 (slotIndex 1→6)
-  const slotTargetsSortedBySlot = [...slotTargets].sort(
-    (a, b) => a.slotIndex - b.slotIndex
-  );
-  
-  // 적재 순서 매핑: 인스토커 위→아래 순서대로 AMR 슬롯(21,31,22,32,23,33)
-  // L1→21, L2→31, L3→22, L4→32, L5→23, L6→33
-  const loadingMap = new Map(); // instocker_mani_pos → { amrSlotNo, product, target }
-  slotTargetsSortedBySlot.forEach((target, idx) => {
-    const amrSlotNo = interleavedSlotNos[idx];
-    loadingMap.set(target.instocker_mani_pos, {
-      amrSlotNo,
-      product: target.product_type_value,
-      target,
-    });
+  // AMR 슬롯 적재 순서: 21,31,22,32,23,33
+  const amrLoadOrder = interleavedSlotNos.slice(0, slotAssignments.length);
+  slotAssignments.forEach((assignment, idx) => {
+    assignment.amrSlotNo = amrLoadOrder[idx];
   });
+  
+  // AMR 슬롯 → 연마기 매핑 (제품 기준, 바깥쪽 6→1, L→R 우선)
+  const grinderMap = new Map(); // amrSlotNo -> target
+  const unloadOrder = [...interleavedSlotNos].reverse(); // 33,23,32,22,31,21
+  unloadOrder.forEach((amrSlotNo) => {
+    const assignment = slotAssignments.find((s) => s.amrSlotNo === amrSlotNo);
+    if (!assignment) return;
+    const productKey = String(assignment.product_type_value);
+    const list = availableByProduct.get(productKey) || [];
+    const target = list.shift();
+    if (!target) return;
+    availableByProduct.set(productKey, list);
+    grinderMap.set(amrSlotNo, target);
+  });
+  if (grinderMap.size !== slotAssignments.length) {
+    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 연마기 매칭 부족 (필요 ${slotAssignments.length} / 매칭 ${grinderMap.size})`);
+    return;
+  }
 
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
@@ -489,11 +492,9 @@ async function createTaskForSides(sides, config, activeTasks) {
   // 각 인스토커 슬롯의 제품은 연마기 번호에 맞는 AMR 슬롯에 적재
   // VISION_CHECK: 스테이션 이동 직후 첫 픽업만 1, 이후는 0
   let lastPickupStation = null;
-  slots.forEach((slot) => {
-    const mapping = loadingMap.get(slot.mani_pos);
-    if (!mapping) return;
-    const amrSlotNo = mapping.amrSlotNo;
-    const currentStation = slot.amr_pos;
+  slotAssignments.forEach((assignment) => {
+    const amrSlotNo = assignment.amrSlotNo;
+    const currentStation = assignment.instocker_amr_pos;
     if (currentStation && currentStation !== lastPickupStation) {
       steps.push({ type: "NAV", payload: JSON.stringify({ dest: currentStation }) });
     }
@@ -502,29 +503,25 @@ async function createTaskForSides(sides, config, activeTasks) {
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1,
-        CMD_FROM: Number(slot.mani_pos),
+        CMD_FROM: Number(assignment.instocker_mani_pos),
         CMD_TO: amrSlotNo,
         VISION_CHECK: visionCheck,
-        PRODUCT_NO: slot.product_type_value,
+        PRODUCT_NO: assignment.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
       }),
     });
     if (currentStation) lastPickupStation = currentStation;
-    console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${slot.mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mapping.target.grinderIndex}용, VISION=${visionCheck})`);
+    const mappedTarget = grinderMap.get(amrSlotNo);
+    console.log(`[TaskCreate] ${sideLabel}: 적재 - 인스토커 ${assignment.instocker_mani_pos} → AMR 슬롯 ${amrSlotNo} (연마기 ${mappedTarget?.grinderIndex ?? "?"}용, VISION=${visionCheck})`);
   });
 
   // AMR -> 연마기 투입 (하역 순서: 33, 23, 32, 22, 31, 21)
   // 제품번호 기준으로 바깥쪽(6→1) 우선 배정되어 있으며,
   // 내측 연마기 방문 후 바깥쪽 작업이 남아 있으면 LM4로 한 번 복귀 후 재개
-  const unloadOrder = [...interleavedSlotNos].reverse(); // 33,23,32,22,31,21
-  const targetByAmrSlot = new Map();
-  loadingMap.forEach((value) => {
-    targetByAmrSlot.set(value.amrSlotNo, value.target);
-  });
-  const orderedSlots = unloadOrder.filter((slotNo) => targetByAmrSlot.has(slotNo));
+  const orderedSlots = unloadOrder.filter((slotNo) => grinderMap.has(slotNo));
   const resetStation = "LM4";
   orderedSlots.forEach((amrSlotNo, idx) => {
-    const target = targetByAmrSlot.get(amrSlotNo);
+    const target = grinderMap.get(amrSlotNo);
     if (!target) return;
     
     // 1. 연마기 위치로 이동
@@ -604,21 +601,21 @@ async function createTaskForSides(sides, config, activeTasks) {
     
     console.log(`[TaskCreate] ${sideLabel}: 하역 - AMR 슬롯 ${amrSlotNo} → 연마기 ${target.grinderIndex}-${target.grinderPosition}`);
 
-    // 이후 남은 작업 중 더 바깥쪽(번호 큰) 연마기가 있으면 LM4로 한번 이동
-    let remainingMax = null;
+    // 다음 작업이 더 바깥쪽 연마기면 LM4로 한번 이동
+    let nextTarget = null;
     for (let i = idx + 1; i < orderedSlots.length; i += 1) {
-      const nextTarget = targetByAmrSlot.get(orderedSlots[i]);
-      if (!nextTarget) continue;
-      if (remainingMax === null || nextTarget.grinderIndex > remainingMax) {
-        remainingMax = nextTarget.grinderIndex;
+      const candidate = grinderMap.get(orderedSlots[i]);
+      if (candidate) {
+        nextTarget = candidate;
+        break;
       }
     }
-    if (remainingMax !== null && remainingMax > target.grinderIndex) {
+    if (nextTarget && nextTarget.grinderIndex > target.grinderIndex) {
       steps.push({
         type: "NAV",
         payload: JSON.stringify({ dest: resetStation }),
       });
-      console.log(`[TaskCreate] ${sideLabel}: 내측 하역 후 ${resetStation} 이동 (다음 바깥쪽 연마기 ${remainingMax})`);
+      console.log(`[TaskCreate] ${sideLabel}: 내측 하역 후 ${resetStation} 이동 (다음 바깥쪽 연마기 ${nextTarget.grinderIndex})`);
     }
   });
 
@@ -630,9 +627,10 @@ async function createTaskForSides(sides, config, activeTasks) {
   }
 
   const tasks = activeTasks || (await getActiveTasks());
-  const newStations = new Set([pickupStation, ...slotTargets.map((t) => t.grinder_station), robot.home_station].filter(Boolean));
+  const grinderTargets = Array.from(grinderMap.values());
+  const newStations = new Set([pickupStation, ...grinderTargets.map((t) => t.grinder_station), robot.home_station].filter(Boolean));
   const newPlcIds = new Set(
-    slotTargets.flatMap((t) => [
+    grinderTargets.flatMap((t) => [
       t.safe_pos_id,
       t.input_in_progress_id,
       t.input_done_id,
