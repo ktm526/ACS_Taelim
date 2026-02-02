@@ -70,8 +70,18 @@ app.use(express.static(path.join(__dirname, 'dist')));
         type: require('sequelize').DataTypes.STRING,
         allowNull: true,
       }).catch(() => { });
+      // home_pre_station
+      await qi.addColumn('Robots', 'home_pre_station', {
+        type: require('sequelize').DataTypes.STRING,
+        allowNull: true,
+      }).catch(() => { });
       // charge_station
       await qi.addColumn('Robots', 'charge_station', {
+        type: require('sequelize').DataTypes.STRING,
+        allowNull: true,
+      }).catch(() => { });
+      // charge_pre_station
+      await qi.addColumn('Robots', 'charge_pre_station', {
         type: require('sequelize').DataTypes.STRING,
         allowNull: true,
       }).catch(() => { });

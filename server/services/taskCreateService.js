@@ -953,6 +953,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   
   // 정렬된 순서대로 하역 (각 아이템의 컨베이어로 이동 후 하역)
   let lastConveyorAmrPos = null;
+  let lastConveyorVisionKey = null;
   for (const info of sortedForUnload) {
     const conveyorItem = info.conveyorItem;
     const amrPos = normalizeText(conveyorItem.amr_pos);
@@ -1007,17 +1008,20 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
       payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
     });
     
+    const visionKey = `${conveyorItem.index ?? ""}|${conveyorManiPos ?? ""}`;
+    const visionCheck = visionKey && visionKey !== lastConveyorVisionKey ? 1 : 0;
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1,
         CMD_FROM: amrSlotNo,
         CMD_TO: Number(conveyorManiPos),
-        VISION_CHECK: 0,
+        VISION_CHECK: visionCheck,
         PRODUCT_NO: info.productNo, // 제품 번호 (로그용)
         AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (비우기 대상)
       }),
     });
+    if (visionKey) lastConveyorVisionKey = visionKey;
     
     // 투입완료: 투입중=0, 정지요청=0 후 투입완료=1
     if (conveyorItem.input_in_progress_id) {

@@ -81,7 +81,15 @@ module.exports = sequelize.define('Robot', {
         type: DataTypes.STRING,
         allowNull: true,
     },
+    home_pre_station: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     charge_station: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    charge_pre_station: {
         type: DataTypes.STRING,
         allowNull: true,
     },

@@ -788,7 +788,9 @@ export default function AMRStatus() {
         setSelectedAmr(updated);
         robotSettingsForm.setFieldsValue({
           home_station: updated?.home_station ?? undefined,
+          home_pre_station: updated?.home_pre_station ?? undefined,
           charge_station: updated?.charge_station ?? undefined,
+          charge_pre_station: updated?.charge_pre_station ?? undefined,
           slots: parseSlotsEntries(updated?.slots).sort((a, b) => a.slot_no - b.slot_no),
         });
       }
@@ -815,7 +817,9 @@ export default function AMRStatus() {
     setSelectedAmr(amr);
     robotSettingsForm.setFieldsValue({
       home_station: amr?.home_station ?? undefined,
+      home_pre_station: amr?.home_pre_station ?? undefined,
       charge_station: amr?.charge_station ?? undefined,
+      charge_pre_station: amr?.charge_pre_station ?? undefined,
       slots: parseSlotsEntries(amr?.slots).sort((a, b) => a.slot_no - b.slot_no),
     });
     setDetailVisible(true);
@@ -909,7 +913,9 @@ export default function AMRStatus() {
 
             const patch = {
               home_station: vals.home_station || null,
+              home_pre_station: vals.home_pre_station || null,
               charge_station: vals.charge_station || null,
+              charge_pre_station: vals.charge_pre_station || null,
               // sparse 저장: slot_no 기반 엔트리만 저장 (0도 "빈 슬롯"으로 의미 있으므로 유지)
               slots: JSON.stringify(
                 cleaned
@@ -1403,12 +1409,20 @@ export default function AMRStatus() {
                         <Descriptions.Item label="다음 위치">{selectedAmr.next_location || "-"}</Descriptions.Item>
 
                         <Descriptions.Item label="HOME 스테이션">{selectedAmr.home_station || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="HOME_PRE 스테이션">{selectedAmr.home_pre_station || "-"}</Descriptions.Item>
                         <Descriptions.Item label="충전 스테이션">{selectedAmr.charge_station || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="충전_PRE 스테이션">{selectedAmr.charge_pre_station || "-"}</Descriptions.Item>
                         <Descriptions.Item label="HOME(표시명)" span={2}>
                           {resolveStationLabel(selectedAmr.home_station)}
                         </Descriptions.Item>
+                        <Descriptions.Item label="HOME_PRE(표시명)" span={2}>
+                          {resolveStationLabel(selectedAmr.home_pre_station)}
+                        </Descriptions.Item>
                         <Descriptions.Item label="충전(표시명)" span={2}>
                           {resolveStationLabel(selectedAmr.charge_station)}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="충전_PRE(표시명)" span={2}>
+                          {resolveStationLabel(selectedAmr.charge_pre_station)}
                         </Descriptions.Item>
 
                         <Descriptions.Item label="배터리" span={2}>
@@ -1460,7 +1474,35 @@ export default function AMRStatus() {
                             }
                           />
                         </Form.Item>
+                        <Form.Item name="home_pre_station" label="HOME_PRE 스테이션(현재 맵)">
+                          <Select
+                            allowClear
+                            showSearch
+                            placeholder="스테이션 선택 또는 검색"
+                            options={stationOptions}
+                            filterOption={(input, option) =>
+                              (option?.search ?? option?.label ?? "")
+                                .toString()
+                                .toLowerCase()
+                                .includes(input.toLowerCase())
+                            }
+                          />
+                        </Form.Item>
                         <Form.Item name="charge_station" label="충전 스테이션(현재 맵)">
+                          <Select
+                            allowClear
+                            showSearch
+                            placeholder="스테이션 선택 또는 검색"
+                            options={stationOptions}
+                            filterOption={(input, option) =>
+                              (option?.search ?? option?.label ?? "")
+                                .toString()
+                                .toLowerCase()
+                                .includes(input.toLowerCase())
+                            }
+                          />
+                        </Form.Item>
+                        <Form.Item name="charge_pre_station" label="충전_PRE 스테이션(현재 맵)">
                           <Select
                             allowClear
                             showSearch
