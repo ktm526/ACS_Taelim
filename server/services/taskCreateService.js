@@ -196,10 +196,31 @@ async function loadConfig() {
   const outstockerSides = safeParse(outstockerRow?.sides, {});
   const conveyors = safeParse(conveyorRow?.conveyors, []);
   const grinder_wait_ms = Number(settingsRow?.grinder_wait_ms ?? 0);
+  const charge_complete_percent = Number(settingsRow?.charge_complete_percent ?? 90);
 
-  configCache = { instockerSlots, sideSignals, grinders, outstockerSides, conveyors, grinder_wait_ms };
+  configCache = {
+    instockerSlots,
+    sideSignals,
+    grinders,
+    outstockerSides,
+    conveyors,
+    grinder_wait_ms,
+    charge_complete_percent,
+  };
   configFetchedAt = now;
   return configCache;
+}
+
+function isChargingBlocked(robot, config) {
+  if (!robot) return false;
+  const info = safeParse(robot.additional_info, {});
+  const charging = info?.charging === true || robot.status === "충전";
+  if (!charging) return false;
+  const threshold = Number(config?.charge_complete_percent);
+  if (!Number.isFinite(threshold)) return false;
+  const battery = Number(robot.battery);
+  if (!Number.isFinite(battery)) return true;
+  return battery < threshold;
 }
 
 function getSideSlots(slots, side) {
@@ -406,6 +427,9 @@ async function createTaskForSides(sides, config, activeTasks) {
   const robot = await Robot.findOne({ where: { name: "M500-S-01" } });
   if (!robot) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: M500-S-01 로봇 없음`);
+    return;
+  }
+  if (isChargingBlocked(robot, config)) {
     return;
   }
   //console.log(`[TaskCreate] ${side}: 로봇=${robot.name}(ID:${robot.id}), 상태=${robot.status}`);
@@ -780,6 +804,9 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     //console.warn("[TaskCreate] M500-S-02 로봇 없음");
     return;
   }
+  if (isChargingBlocked(robot, config)) {
+    return;
+  }
 
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
@@ -1083,6 +1110,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
 async function createTaskForGrinderOutput(config, activeTasks) {
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
   if (!robot) return;
+  if (isChargingBlocked(robot, config)) return;
 
   let tasks = activeTasks || (await getActiveTasks());
   if (tasks.length) return;
@@ -1101,6 +1129,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     //console.log(`[TaskCreate] 시나리오2: 연마기 배출 대기 ${waitMs}ms`);
     await sleep(waitMs);
   }
+  if (isChargingBlocked(robot, config)) return;
 
   tasks = await getActiveTasks();
   if (tasks.length) return;
