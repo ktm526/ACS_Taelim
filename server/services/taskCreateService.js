@@ -626,6 +626,18 @@ async function createTaskForSides(sides, config, activeTasks) {
     }
   });
 
+  if (robot.home_pre_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_pre_station }),
+    });
+  }
+  if (robot.home_pre_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_pre_station }),
+    });
+  }
   if (robot.home_station) {
     steps.push({
       type: "NAV",
@@ -633,20 +645,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     });
   }
 
-  const tasks = activeTasks || (await getActiveTasks());
   const grinderTargets = Array.from(grinderMap.values());
-  const newStations = new Set([pickupStation, ...grinderTargets.map((t) => t.grinder_station), robot.home_station].filter(Boolean));
-  const newPlcIds = new Set(
-    grinderTargets.flatMap((t) => [
-      t.safe_pos_id,
-      t.input_in_progress_id,
-      t.input_done_id,
-    ]).filter(Boolean)
-  );
-  if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 리소스 중복(스테이션/PLC) → 생성 스킵`);
-    return;
-  }
 
   // 로봇 매니퓰레이터 TASK_STATUS 확인 (0이어야 발행)
   const robotReady = await checkRobotTaskStatus(robot.ip);
@@ -1042,41 +1041,18 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     });
   }
 
-  // 홈 스테이션으로 복귀
+  // 홈 스테이션으로 복귀 (pre → home)
+  if (robot.home_pre_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_pre_station }),
+    });
+  }
   if (robot.home_station) {
     steps.push({
       type: "NAV",
       payload: JSON.stringify({ dest: robot.home_station }),
     });
-  }
-
-  // 리소스 중복 체크
-  const tasks = activeTasks || (await getActiveTasks());
-  const newStations = new Set([
-    ...validRequests.map(r => normalizeText(r.item.amr_pos)),
-    ...pickupInfos.map(p => p.rowInfo.amr_pos),
-    robot.home_station, // 홈 스테이션도 포함
-  ].filter(Boolean));
-  
-  const newPlcIds = new Set([
-    // 컨베이어 신호
-    ...validRequests.flatMap(r => [
-      r.item.stop_request_id,
-      r.item.stop_id,
-      r.item.input_ready_id,
-      r.item.input_in_progress_id,
-      r.item.input_done_id,
-    ]),
-    // 아웃스토커 신호 (작업중, 배출완료)
-    ...pickupInfos.flatMap(p => [
-      p.rowInfo.working_id,
-      p.rowInfo.unload_done_id,
-    ]),
-  ].map(normalizeText).filter(Boolean));
-  
-  if (hasResourceOverlap(newStations, newPlcIds, tasks)) {
-    //console.log(`[TaskCreate] 컨베이어 통합: 기존 태스크와 중복, 생성 스킵`);
-    return;
   }
 
   // 로봇 매니퓰레이터 TASK_STATUS 확인
@@ -1108,6 +1084,9 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
   if (!robot) return;
 
+  let tasks = activeTasks || (await getActiveTasks());
+  if (tasks.length) return;
+
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
@@ -1122,6 +1101,9 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     //console.log(`[TaskCreate] 시나리오2: 연마기 배출 대기 ${waitMs}ms`);
     await sleep(waitMs);
   }
+
+  tasks = await getActiveTasks();
+  if (tasks.length) return;
 
   const latestConfig = await loadConfig();
   const grinderOutputs = buildAvailableGrinderOutputPositions(latestConfig.grinders || []);
@@ -1298,10 +1280,10 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     });
   }
 
-  const tasks = activeTasks || (await getActiveTasks());
   const newStations = new Set([
     ...pairs.map((p) => p.output.station),
     ...pairs.map((p) => p.outRow.amr_pos),
+    robot.home_pre_station,
     robot.home_station,
   ].filter(Boolean));
 
@@ -1495,13 +1477,6 @@ function start() {
       const activeTasks = await getActiveTasks();
       await logTaskCreateStatus(config);
       
-      //기존 활성 태스크가 있으면 새 작업 발행하지 않음
-      
-      if (activeTasks.length > 0) {
-        return;
-      }
-      
-      
       await checkScenario1(config, activeTasks);
       await checkGrinderOutput(config, activeTasks);
       await checkConveyors(config, activeTasks);
@@ -1515,13 +1490,6 @@ function start() {
       const config = await loadConfig();
       const activeTasks = await getActiveTasks();
       await logTaskCreateStatus(config);
-      
-      // 기존 활성 태스크가 있으면 새 작업 발행하지 않음
-      
-      if (activeTasks.length > 0) {
-        return;
-      }
-      
       
       await checkScenario1(config, activeTasks);
       await checkGrinderOutput(config, activeTasks);
