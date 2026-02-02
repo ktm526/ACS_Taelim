@@ -474,12 +474,32 @@ const CurrentTaskSteps = React.memo(({ amrId, amrName, passwordConfirm }) => {
             borderRadius: 6,
             flexShrink: 0
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <Text strong>Task #{data.task_id}</Text>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Text strong>Task #{data.task_id}</Text>
+                {data.scenario && (
+                  <Tag color="purple" style={{ fontSize: 10, margin: 0 }}>
+                    시나리오 {data.scenario}
+                  </Tag>
+                )}
+              </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {data.current_seq + 1} / {data.steps.length} 스텝
               </Text>
             </div>
+            {data.summary && (
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
+                <div>
+                  <span style={{ color: '#999' }}>출발:</span> {data.summary.source || '-'}
+                </div>
+                <div>
+                  <span style={{ color: '#999' }}>도착:</span> {data.summary.target || '-'}
+                </div>
+                <div>
+                  <span style={{ color: '#999' }}>수량:</span> 픽업 {data.summary.pickup_count ?? 0}개 → 하역 {data.summary.dropoff_count ?? 0}개
+                </div>
+              </div>
+            )}
             <Progress 
               percent={Math.round(((data.current_seq + 1) / data.steps.length) * 100)} 
               size="small" 
@@ -1115,12 +1135,32 @@ export default function AMRStatus() {
               borderRadius: 6,
               flexShrink: 0
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <Text strong>Task #{data.task_id}</Text>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Text strong>Task #{data.task_id}</Text>
+                  {data.scenario && (
+                    <Tag color="purple" style={{ fontSize: 10, margin: 0 }}>
+                      시나리오 {data.scenario}
+                    </Tag>
+                  )}
+                </div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {data.current_seq + 1} / {data.steps.length} 스텝
                 </Text>
               </div>
+              {data.summary && (
+                <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
+                  <div>
+                    <span style={{ color: '#999' }}>출발:</span> {data.summary.source || '-'}
+                  </div>
+                  <div>
+                    <span style={{ color: '#999' }}>도착:</span> {data.summary.target || '-'}
+                  </div>
+                  <div>
+                    <span style={{ color: '#999' }}>수량:</span> 픽업 {data.summary.pickup_count ?? 0}개 → 하역 {data.summary.dropoff_count ?? 0}개
+                  </div>
+                </div>
+              )}
               <Progress 
                 percent={Math.round(((data.current_seq + 1) / data.steps.length) * 100)} 
                 size="small" 

@@ -121,6 +121,19 @@ app.use(express.static(path.join(__dirname, 'dist')));
     };
     await ensureDeviceInStockerColumns();
 
+    /* 0-5) Task 테이블에 scenario, summary 컬럼 추가 */
+    const ensureTaskColumns = async () => {
+      await qi.addColumn('Tasks', 'scenario', {
+        type: require('sequelize').DataTypes.INTEGER,
+        allowNull: true,
+      }).catch(() => { });
+      await qi.addColumn('Tasks', 'summary', {
+        type: require('sequelize').DataTypes.TEXT,
+        allowNull: true,
+      }).catch(() => { });
+    };
+    await ensureTaskColumns();
+
     /* 1) 실제 테이블 자동 생성/변경 ----------------------- */
     //await sequelize.sync({ force: true });
     await sequelize.sync();

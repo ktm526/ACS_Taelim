@@ -671,6 +671,15 @@ async function createTaskForSides(sides, config, activeTasks) {
 
   const grinderTargets = Array.from(grinderMap.values());
 
+  // 시나리오 2 태스크가 진행 중이면 발행하지 않음
+  const scenario2Task = await Task.findOne({
+    where: { scenario: 2, status: ["PENDING", "RUNNING", "PAUSED"] },
+  });
+  if (scenario2Task) {
+    console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: 시나리오2 진행 중 (Task#${scenario2Task.id}) → 생성 스킵`);
+    return;
+  }
+
   // 로봇 매니퓰레이터 TASK_STATUS 확인 (0이어야 발행)
   const robotReady = await checkRobotTaskStatus(robot.ip);
   if (!robotReady) {
@@ -678,19 +687,32 @@ async function createTaskForSides(sides, config, activeTasks) {
     return;
   }
 
+  // 요약 정보 생성
+  const grinderSummary = Array.from(grinderMap.entries())
+    .map(([slotNo, target]) => `G${target.grinderIndex}-${target.position}`)
+    .join(", ");
+  const summary = {
+    source: `인스토커 ${sideLabel}`,
+    target: grinderSummary,
+    pickup_count: slotAssignments.length,
+    dropoff_count: grinderMap.size,
+  };
+
   const task = await Task.create(
     {
       robot_id: robot.id,
+      scenario: 1,
+      summary: JSON.stringify(summary),
       steps: steps.map((s, i) => ({ ...s, seq: i })),
     },
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  console.log(`[TaskCreate] ${sideLabel}: Task#${task.id} 생성 (${steps.length} 스텝)`);
+  console.log(`[TaskCreate] ${sideLabel}: Task#${task.id} 생성 (시나리오1, ${steps.length} 스텝)`);
   await logTaskEvent(task.id, "TASK_CREATED", `인스토커 ${sideLabel} → 연마기 태스크 생성 (${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { sides: sideLabel, stepsCount: steps.length },
+    payload: { sides: sideLabel, stepsCount: steps.length, scenario: 1, summary },
   });
 }
 
@@ -1082,28 +1104,49 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     });
   }
 
+  // 시나리오 2 태스크가 진행 중이면 발행하지 않음
+  const scenario2Task = await Task.findOne({
+    where: { scenario: 2, status: ["PENDING", "RUNNING", "PAUSED"] },
+  });
+  if (scenario2Task) {
+    //console.log(`[TaskCreate] 시나리오3: 시나리오2 진행 중 (Task#${scenario2Task.id}) → 생성 스킵`);
+    return;
+  }
+
   // 로봇 매니퓰레이터 TASK_STATUS 확인
   const robotReady = await checkRobotTaskStatus(robot.ip);
   if (!robotReady) {
     return;
   }
 
+  // 요약 정보 생성
+  const outstockerSummary = [...new Set(pickupInfos.map((p) => `${p.rowInfo.side}`))].join(", ");
+  const conveyorSummary = validRequests.map((r) => `C${r.item.index}:${r.qty}`).join("+");
+  const summary = {
+    source: `아웃스토커 ${outstockerSummary}`,
+    target: `컨베이어 ${conveyorSummary}`,
+    pickup_count: pickupInfos.length,
+    dropoff_count: pickupInfos.length,
+  };
+
   const task = await Task.create(
     {
       robot_id: robot.id,
+      scenario: 3,
+      summary: JSON.stringify(summary),
       steps: steps.map((s, i) => ({ ...s, seq: i })),
     },
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  const summary = validRequests.map(r => `C${r.item.index}:${r.qty}`).join('+');
+  const summaryStr = validRequests.map(r => `C${r.item.index}:${r.qty}`).join('+');
   //console.log(
-  //  `[TaskCreate] 컨베이어 통합(${summary}): Task#${task.id} 발행 (${steps.length} steps)`
+  //  `[TaskCreate] 컨베이어 통합(${summaryStr}): Task#${task.id} 발행 (시나리오3, ${steps.length} steps)`
   //);
-  await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어 통합 태스크 (${summary}, ${steps.length} 스텝)`, {
+  await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어 통합 태스크 (${summaryStr}, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { conveyors: validRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length },
+    payload: { conveyors: validRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length, scenario: 3, summary },
   });
 }
 
@@ -1302,6 +1345,12 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     }
   }
 
+  if (robot.home_pre_station) {
+    steps.push({
+      type: "NAV",
+      payload: JSON.stringify({ dest: robot.home_pre_station }),
+    });
+  }
   if (robot.home_station) {
     steps.push({
       type: "NAV",
@@ -1334,19 +1383,31 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   const robotReady = await checkRobotTaskStatus(robot.ip);
   if (!robotReady) return;
 
+  // 요약 정보 생성
+  const grinderSummary = selectedOutputs.map((o) => `G${o.grinderIndex}-${o.position}`).join(", ");
+  const outstockerSummary = [...new Set(sortedForUnload.map((p) => `${p.outRow.side}`))].join(", ");
+  const summary = {
+    source: `연마기 ${grinderSummary}`,
+    target: `아웃스토커 ${outstockerSummary}`,
+    pickup_count: selectedOutputs.length,
+    dropoff_count: selectedOutRows.length,
+  };
+
   const task = await Task.create(
     {
       robot_id: robot.id,
+      scenario: 2,
+      summary: JSON.stringify(summary),
       steps: steps.map((s, i) => ({ ...s, seq: i })),
     },
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
-  //console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (${steps.length} steps)`);
+  //console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (시나리오2, ${steps.length} steps)`);
   await logTaskEvent(task.id, "TASK_CREATED", `연마기 → 아웃스토커 태스크 (${maxCount}개, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { count: maxCount, stepsCount: steps.length },
+    payload: { count: maxCount, stepsCount: steps.length, scenario: 2, summary },
   });
 }
 

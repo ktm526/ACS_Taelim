@@ -170,9 +170,21 @@ exports.currentOfRobot = async (req, res) => {
 
   if (!task) return res.sendStatus(204);
 
+  // summary JSON 파싱
+  let summary = null;
+  if (task.summary) {
+    try {
+      summary = JSON.parse(task.summary);
+    } catch {
+      summary = task.summary;
+    }
+  }
+
   res.json({
     task_id    : task.id,
     current_seq: task.current_seq,
+    scenario   : task.scenario,
+    summary    : summary,
     steps      : task.steps.map(s => ({
       seq    : s.seq,
       type   : s.type,
