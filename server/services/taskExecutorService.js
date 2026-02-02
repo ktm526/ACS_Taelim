@@ -4,7 +4,6 @@ const net = require("net");
 const plc = require("./plcMonitorService");
 const { Task, TaskStep, TaskLog } = require("../models");
 const Robot = require("../models/Robot");
-const Settings = require("../models/Settings");
 const MapDB = require("../models/Map");
 const { sendGotoNav } = require("./navService");
 
@@ -59,42 +58,6 @@ const inFlightNav = new Set();
 const inFlightMani = new Set();
 let timer = null;
 let maniSerial = 0;
-let settingsCache = null;
-let settingsFetchedAt = 0;
-const SETTINGS_TTL_MS = 2000;
-
-function safeParse(raw, fallback) {
-  if (raw == null) return fallback;
-  try {
-    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return parsed ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-async function getChargeCompletePercent() {
-  const now = Date.now();
-  if (settingsCache && now - settingsFetchedAt < SETTINGS_TTL_MS) {
-    return settingsCache;
-  }
-  const row = await Settings.findByPk(1);
-  const value = Number(row?.charge_complete_percent);
-  settingsCache = Number.isFinite(value) ? value : null;
-  settingsFetchedAt = now;
-  return settingsCache;
-}
-
-function isChargingBlocked(robot, chargeCompletePercent) {
-  if (!robot) return false;
-  const info = safeParse(robot.additional_info, {});
-  const charging = info?.charging === true || robot.status === "충전";
-  if (!charging) return false;
-  if (!Number.isFinite(chargeCompletePercent)) return false;
-  const battery = Number(robot.battery);
-  if (!Number.isFinite(battery)) return true;
-  return battery < chargeCompletePercent;
-}
 
 function parseBitIndex(rawBit) {
   if (rawBit === null || rawBit === undefined) return null;
@@ -733,10 +696,6 @@ async function handleRobot(robot, tasks) {
   if (robotLocks.get(robot.id)) return;
   robotLocks.set(robot.id, true);
   try {
-    const chargeCompletePercent = await getChargeCompletePercent();
-    if (isChargingBlocked(robot, chargeCompletePercent)) {
-      return;
-    }
     const runningTask = tasks.find((t) => t.status === "RUNNING");
     const pendingTask = tasks.find((t) => t.status === "PENDING");
 
