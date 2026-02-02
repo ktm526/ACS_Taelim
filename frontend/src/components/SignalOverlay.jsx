@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Card, Space, Badge, Divider, Spin, Alert, message } from "antd";
+import { Button, Card, Space, Spin, Alert, message } from "antd";
 import { InfoCircleOutlined, CloseOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 
@@ -20,44 +20,9 @@ export default function SignalOverlay() {
     retry: false,
   });
 
-  // 각 상태값에 맞춰 Ant Design의 Badge status로 매핑
-  const renderBadge = (key, val, type) => {
-    // door: 'disconnected' | 'open' | 'closed'
-    if (type === "door") {
-      let status;
-      if (val === "disconnected") status = "default";
-      else if (val === "open") status = "error";
-      /* closed */ else status = "success";
-      return <Badge key={key} status={status} text={key} />;
-    }
-    // 그 외 boolean: connectivity (rio/amr) -> 파랑/회색
-    if (type === "connectivity") {
-      return (
-        <Badge key={key} status={val ? "processing" : "default"} text={key} />
-      );
-    }
-    // alarm (boolean) -> 빨강/초록
-    if (type === "alarm") {
-      return (
-        <Badge
-          key={key}
-          status={val ? "error" : "success"}
-          text={val ? "활성" : "비활성"}
-        />
-      );
-    }
-    return null;
-  };
-
-  const renderBadges = (items, type) => {
-    if (!items || typeof items !== "object") {
-      return <span style={{ opacity: 0.8 }}>비활성</span>;
-    }
-    return (
-      <Space split={<Divider type="vertical" />} wrap>
-        {Object.entries(items).map(([key, val]) => renderBadge(key, val, type))}
-      </Space>
-    );
+  const renderSignal = (value) => {
+    if (value === null || value === undefined) return "-";
+    return value === 1 ? "ON" : "OFF";
   };
 
   const collapsedContainer = {
@@ -122,7 +87,39 @@ export default function SignalOverlay() {
             {data && (
               <Space direction="vertical" size="small" style={{ width: "100%" }}>
                 <div>
-                  <strong>AMR:</strong> {renderBadges(data.amr, "connectivity")}
+                  <strong>인스토커 작업 가능:</strong>{" "}
+                  L {renderSignal(data.instocker?.work_available?.L)} / R{" "}
+                  {renderSignal(data.instocker?.work_available?.R)}
+                </div>
+                <div>
+                  <strong>인스토커 배출 가능 제품 수:</strong>{" "}
+                  {data.instocker?.available_count ?? "-"}
+                </div>
+                <div>
+                  <strong>사용 연마기 수:</strong>{" "}
+                  {data.grinder?.used_count ?? "-"}
+                </div>
+                <div>
+                  <strong>연마기 투입 가능 제품 수:</strong>{" "}
+                  {data.grinder?.input_ready_count ?? "-"}
+                </div>
+                <div>
+                  <strong>연마기 배출 가능 제품 수:</strong>{" "}
+                  {data.grinder?.output_ready_count ?? "-"}
+                </div>
+                <div>
+                  <strong>아웃스토커 투입 가능 위치 수:</strong>{" "}
+                  {data.outstocker?.load_ready_count ?? "-"}
+                </div>
+                <div>
+                  <strong>아웃스토커 배출 가능 지그 수:</strong>{" "}
+                  {data.outstocker?.unload_jig_count ?? "-"}
+                </div>
+                <div>
+                  <strong>컨베이어 호출 신호:</strong>{" "}
+                  {(data.conveyor?.calls || [])
+                    .map((c) => `C${c.index ?? "?"}:${c.qty || 0}`)
+                    .join(" / ") || "-"}
                 </div>
               </Space>
             )}

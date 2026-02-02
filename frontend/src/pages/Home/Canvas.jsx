@@ -199,7 +199,7 @@ export default function Canvas() {
   // 태스크 상세 보기 모달
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [taskDetailData, setTaskDetailData] = useState(null);
-  const [taskDetailLoading, setTaskDetailLoading] = useState(false);
+  const [taskDetailId, setTaskDetailId] = useState(null);
 
   // 프리셋 관련 상태
   const [presets, setPresets] = useState(() => {
@@ -247,20 +247,28 @@ export default function Canvas() {
   }, []);
 
   // 태스크 상세 조회
-  const fetchTaskDetail = useCallback(async (taskId) => {
-    setTaskDetailLoading(true);
-    try {
-      const response = await fetch(`${CORE}/api/tasks/${taskId}`);
-      if (!response.ok) throw new Error("Failed to fetch task detail");
-      const data = await response.json();
-      setTaskDetailData(data);
-      setTaskDetailOpen(true);
-    } catch (err) {
-      message.error("태스크 상세 조회 실패");
-    } finally {
-      setTaskDetailLoading(false);
-    }
+  const fetchTaskDetail = useCallback((taskId) => {
+    setTaskDetailId(taskId);
+    setTaskDetailOpen(true);
   }, []);
+
+  const taskDetailQuery = useQuery({
+    queryKey: ["taskDetail", taskDetailId],
+    queryFn: async () => {
+      const response = await fetch(`${CORE}/api/tasks/${taskDetailId}`);
+      if (!response.ok) throw new Error("Failed to fetch task detail");
+      return response.json();
+    },
+    enabled: !!taskDetailId && taskDetailOpen,
+    refetchInterval: taskDetailOpen ? 3000 : false,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (taskDetailQuery.data) {
+      setTaskDetailData(taskDetailQuery.data);
+    }
+  }, [taskDetailQuery.data]);
 
   // 스텝 타입 라벨
   const stepTypeLabel = (type) => {
@@ -860,7 +868,7 @@ export default function Canvas() {
                               size="small"
                               icon={<EyeOutlined />}
                               onClick={() => fetchTaskDetail(task.id)}
-                              loading={taskDetailLoading}
+                              loading={taskDetailOpen && taskDetailId === task.id && taskDetailQuery.isFetching}
                             />,
                             <Button
                               key="del"
@@ -1341,15 +1349,28 @@ export default function Canvas() {
 
       {/* 태스크 상세 보기 모달 */}
       <Modal
-        title={taskDetailData ? `태스크 #${taskDetailData.id} 상세` : "태스크 상세"}
+        title={
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span>{taskDetailData ? `태스크 #${taskDetailData.id} 상세` : "태스크 상세"}</span>
+            <Button size="small" onClick={() => taskDetailQuery.refetch()} loading={taskDetailQuery.isFetching}>
+              새로고침
+            </Button>
+          </div>
+        }
         open={taskDetailOpen}
         footer={null}
         onCancel={() => {
           setTaskDetailOpen(false);
           setTaskDetailData(null);
+          setTaskDetailId(null);
         }}
         width={600}
       >
+        {taskDetailQuery.isFetching && !taskDetailData ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
+            <Spin size="small" />
+          </div>
+        ) : null}
         {taskDetailData && (() => {
           const robot = robots.find((r) => r.id === taskDetailData.robot_id);
           const robotName = robot?.name || `로봇 ${taskDetailData.robot_id}`;
