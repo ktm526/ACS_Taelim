@@ -1349,16 +1349,29 @@ export default function Canvas() {
 
       {/* 태스크 상세 보기 모달 */}
       <Modal
-        title={
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span>{taskDetailData ? `태스크 #${taskDetailData.id} 상세` : "태스크 상세"}</span>
-            <Button size="small" onClick={() => taskDetailQuery.refetch()} loading={taskDetailQuery.isFetching}>
+        title={taskDetailData ? `태스크 #${taskDetailData.id} 상세` : "태스크 상세"}
+        open={taskDetailOpen}
+        footer={
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <Button
+              size="small"
+              onClick={() => taskDetailQuery.refetch()}
+              loading={taskDetailQuery.isFetching}
+            >
               새로고침
+            </Button>
+            <Button
+              size="small"
+              onClick={() => {
+                setTaskDetailOpen(false);
+                setTaskDetailData(null);
+                setTaskDetailId(null);
+              }}
+            >
+              닫기
             </Button>
           </div>
         }
-        open={taskDetailOpen}
-        footer={null}
         onCancel={() => {
           setTaskDetailOpen(false);
           setTaskDetailData(null);
@@ -1381,72 +1394,72 @@ export default function Canvas() {
                   <div style={{ fontSize: 11, color: "#888" }}>로봇</div>
                   <div style={{ fontWeight: 600 }}>{robotName}</div>
                 </div>
-              <div>
-                <div style={{ fontSize: 11, color: "#888" }}>상태</div>
-                <Tag
-                  color={
-                    taskDetailData.status === "DONE" ? "green" :
-                    taskDetailData.status === "RUNNING" ? "blue" :
-                    taskDetailData.status === "PENDING" ? "default" :
-                    taskDetailData.status === "PAUSED" ? "orange" :
-                    taskDetailData.status === "CANCELED" ? "red" :
-                    taskDetailData.status === "FAILED" ? "red" : "default"
-                  }
-                >
-                  {taskDetailData.status}
-                </Tag>
+                <div>
+                  <div style={{ fontSize: 11, color: "#888" }}>상태</div>
+                  <Tag
+                    color={
+                      taskDetailData.status === "DONE" ? "green" :
+                      taskDetailData.status === "RUNNING" ? "blue" :
+                      taskDetailData.status === "PENDING" ? "default" :
+                      taskDetailData.status === "PAUSED" ? "orange" :
+                      taskDetailData.status === "CANCELED" ? "red" :
+                      taskDetailData.status === "FAILED" ? "red" : "default"
+                    }
+                  >
+                    {taskDetailData.status}
+                  </Tag>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#888" }}>현재 스텝</div>
+                  <div style={{ fontWeight: 600 }}>{taskDetailData.current_seq ?? 0}</div>
+                </div>
               </div>
+
+              <Divider style={{ margin: "8px 0" }} />
+
               <div>
-                <div style={{ fontSize: 11, color: "#888" }}>현재 스텝</div>
-                <div style={{ fontWeight: 600 }}>{taskDetailData.current_seq ?? 0}</div>
-              </div>
-            </div>
-
-            <Divider style={{ margin: "8px 0" }} />
-
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>스텝 목록 ({taskDetailData.steps?.length ?? 0}개)</div>
-              <div style={{ maxHeight: 300, overflowY: "auto" }}>
-                {(taskDetailData.steps || [])
-                  .slice()
-                  .sort((a, b) => a.seq - b.seq)
-                  .map((step, idx) => (
-                    <div
-                      key={step.id || idx}
-                      style={{
-                        padding: 8,
-                        marginBottom: 6,
-                        border: "1px solid #e8e8e8",
-                        borderRadius: 6,
-                        background:
-                          step.status === "DONE" ? "#f6ffed" :
-                          step.status === "RUNNING" ? "#e6f7ff" :
-                          step.status === "FAILED" ? "#fff2f0" : "#fafafa",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11, color: "#888" }}>#{step.seq + 1}</span>
-                          <Tag color="blue">{stepTypeLabel(step.type)}</Tag>
-                          <span style={{ fontSize: 12 }}>{stepPayloadSummary(step)}</span>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>스텝 목록 ({taskDetailData.steps?.length ?? 0}개)</div>
+                <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                  {(taskDetailData.steps || [])
+                    .slice()
+                    .sort((a, b) => a.seq - b.seq)
+                    .map((step, idx) => (
+                      <div
+                        key={step.id || idx}
+                        style={{
+                          padding: 8,
+                          marginBottom: 6,
+                          border: "1px solid #e8e8e8",
+                          borderRadius: 6,
+                          background:
+                            step.status === "DONE" ? "#f6ffed" :
+                            step.status === "RUNNING" ? "#e6f7ff" :
+                            step.status === "FAILED" ? "#fff2f0" : "#fafafa",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: "#888" }}>#{step.seq + 1}</span>
+                            <Tag color="blue">{stepTypeLabel(step.type)}</Tag>
+                            <span style={{ fontSize: 12 }}>{stepPayloadSummary(step)}</span>
+                          </div>
+                          <Tag
+                            color={
+                              step.status === "DONE" ? "green" :
+                              step.status === "RUNNING" ? "blue" :
+                              step.status === "PENDING" ? "default" :
+                              step.status === "FAILED" ? "red" : "default"
+                            }
+                            style={{ fontSize: 10 }}
+                          >
+                            {step.status}
+                          </Tag>
                         </div>
-                        <Tag
-                          color={
-                            step.status === "DONE" ? "green" :
-                            step.status === "RUNNING" ? "blue" :
-                            step.status === "PENDING" ? "default" :
-                            step.status === "FAILED" ? "red" : "default"
-                          }
-                          style={{ fontSize: 10 }}
-                        >
-                          {step.status}
-                        </Tag>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                </div>
               </div>
             </div>
-          </div>
           );
         })()}
       </Modal>
