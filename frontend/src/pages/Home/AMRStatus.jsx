@@ -31,12 +31,8 @@ import {
   StopOutlined,
   ReloadOutlined,
   CheckCircleOutlined,
-  ClockCircleOutlined,
   ExclamationCircleOutlined,
   LoadingOutlined,
-  CarOutlined,
-  ToolOutlined,
-  HourglassOutlined,
   AimOutlined,
   SearchOutlined,
   ThunderboltOutlined,
@@ -111,28 +107,6 @@ const StepItem = React.memo(({
       return newState;
     });
   }, [step.seq, onExpandChange]);
-  
-  // 스텝 아이콘
-  const stepIcon = useMemo(() => {
-    switch (step.type) {
-      case 'NAV':
-      case 'NAV_PRE':
-        return <CarOutlined />;
-      case 'MANI_WORK':
-        return <ToolOutlined />;
-      case 'PLC_WRITE':
-      case 'PLC_READ':
-        return <ThunderboltOutlined />;
-      case 'JACK_UP':
-      case 'JACK_DOWN':
-      case 'JACK':
-        return <ToolOutlined />;
-      case 'WAIT_FREE_PATH':
-        return <HourglassOutlined />;
-      default:
-        return <ClockCircleOutlined />;
-    }
-  }, [step.type]);
   
   // 스텝 요약
   const stepSummary = useMemo(() => {
@@ -209,7 +183,12 @@ const StepItem = React.memo(({
         
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-            {stepIcon}
+            <Tag
+              style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', margin: 0 }}
+              color="default"
+            >
+              {step.type}
+            </Tag>
             <Text 
               strong={isCurrentStep}
               style={{ 
@@ -235,7 +214,6 @@ const StepItem = React.memo(({
             >
               {step.status}
             </Tag>
-            <Text type="secondary" style={{ fontSize: 10 }}>{step.type}</Text>
           </div>
         </div>
         
