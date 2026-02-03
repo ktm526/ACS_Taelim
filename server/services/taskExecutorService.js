@@ -317,7 +317,7 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
         // DI가 false로 변경되는 것을 확인
         let resetConfirmed = false;
         const resetStartTime = Date.now();
-        const resetTimeout = 5000; // 5초 타임아웃
+        const resetTimeout = 3000; // 5초 타임아웃
         while (Date.now() - resetStartTime <= resetTimeout) {
           await delay(200);
           const checkRobot = await Robot.findByPk(robotId);

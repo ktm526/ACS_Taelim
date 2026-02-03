@@ -656,12 +656,6 @@ async function createTaskForSides(sides, config, activeTasks) {
       payload: JSON.stringify({ dest: robot.home_pre_station }),
     });
   }
-  if (robot.home_pre_station) {
-    steps.push({
-      type: "NAV",
-      payload: JSON.stringify({ dest: robot.home_pre_station }),
-    });
-  }
   if (robot.home_station) {
     steps.push({
       type: "NAV",
