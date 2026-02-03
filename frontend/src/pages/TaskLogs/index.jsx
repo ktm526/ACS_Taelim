@@ -1,37 +1,26 @@
 // src/pages/TaskLogs/index.jsx
 import React, { useState, useMemo, useCallback } from "react";
 import {
-  Card,
-  Table,
-  Tag,
-  Button,
-  Space,
   Input,
   Select,
   DatePicker,
-  Modal,
   Typography,
   message,
   Tooltip,
   Popconfirm,
-  Badge,
   Empty,
-  Descriptions,
-  Divider,
-  Progress,
+  Spin,
 } from "antd";
 import {
   ReloadOutlined,
   SearchOutlined,
   DeleteOutlined,
-  InfoCircleOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
+  CheckCircleFilled,
+  CloseCircleFilled,
+  ClockCircleFilled,
+  MinusCircleFilled,
   DownOutlined,
   RightOutlined,
-  ClockCircleOutlined,
 } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
@@ -41,212 +30,351 @@ const { RangePicker } = DatePicker;
 
 const API = import.meta.env.VITE_CORE_BASE_URL;
 
-// 이벤트별 색상
-const EVENT_COLORS = {
-  TASK_CREATED: "#1890ff",
-  TASK_STARTED: "#13c2c2",
-  TASK_DONE: "#52c41a",
-  TASK_FAILED: "#ff4d4f",
-  TASK_CANCELED: "#faad14",
-  STEP_STARTED: "#597ef7",
-  STEP_DONE: "#73d13d",
-  STEP_FAILED: "#ff7875",
+const SCENARIO_LABELS = {
+  1: "인스토커 → 연마기",
+  2: "연마기 → 아웃스토커",
+  3: "아웃스토커 → 컨베이어",
 };
 
-const EVENT_LABELS = {
-  TASK_CREATED: "생성",
-  TASK_STARTED: "시작",
-  TASK_DONE: "완료",
-  TASK_FAILED: "실패",
-  TASK_CANCELED: "취소",
-  STEP_STARTED: "스텝시작",
-  STEP_DONE: "스텝완료",
-  STEP_FAILED: "스텝실패",
+const STATUS_CONFIG = {
+  완료: { icon: CheckCircleFilled, color: "#10b981", bg: "#ecfdf5" },
+  실패: { icon: CloseCircleFilled, color: "#ef4444", bg: "#fef2f2" },
+  취소: { icon: MinusCircleFilled, color: "#f59e0b", bg: "#fffbeb" },
+  진행중: { icon: ClockCircleFilled, color: "#3b82f6", bg: "#eff6ff" },
 };
 
-// PLC 상태 표시 컴포넌트
-const PlcStatusDisplay = ({ plcStatus, scenario }) => {
-  if (!plcStatus) return <Text type="secondary">PLC 상태 정보 없음</Text>;
+// 통계 카드
+const StatCard = ({ label, value, color, icon: Icon }) => (
+  <div style={{
+    background: "#fff",
+    borderRadius: 12,
+    padding: "16px 20px",
+    minWidth: 120,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+  }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+      {Icon && <Icon style={{ fontSize: 14, color }} />}
+      <Text style={{ fontSize: 12, color: "#64748b" }}>{label}</Text>
+    </div>
+    <Text style={{ fontSize: 24, fontWeight: 600, color }}>{value}</Text>
+  </div>
+);
+
+// PLC 상태 컴팩트 표시
+const PlcStatusCompact = ({ plcStatus, scenario }) => {
+  if (!plcStatus) return null;
+  
+  const renderDevices = () => {
+    const items = [];
+    
+    if (scenario === 1) {
+      if (plcStatus.instocker) {
+        Object.entries(plcStatus.instocker).forEach(([side, data]) => {
+          items.push(
+            <span key={`ins-${side}`} style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              background: data.work_available ? "#ecfdf5" : "#f1f5f9",
+              borderRadius: 4,
+              fontSize: 11,
+              color: data.work_available ? "#10b981" : "#94a3b8",
+            }}>
+              인스토커 {side}
+              {data.work_available && <CheckCircleFilled style={{ fontSize: 10 }} />}
+            </span>
+          );
+        });
+      }
+      if (plcStatus.grinders) {
+        plcStatus.grinders.forEach((g) => {
+          const hasInput = g.positions?.L?.input_ready || g.positions?.R?.input_ready;
+          items.push(
+            <span key={`g-${g.index}`} style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              background: g.bypass ? "#fef2f2" : (hasInput ? "#eff6ff" : "#f1f5f9"),
+              borderRadius: 4,
+              fontSize: 11,
+              color: g.bypass ? "#ef4444" : (hasInput ? "#3b82f6" : "#94a3b8"),
+            }}>
+              G{g.index} {g.bypass ? "바이패스" : `L:${g.positions?.L?.input_ready ? "✓" : "-"} R:${g.positions?.R?.input_ready ? "✓" : "-"}`}
+            </span>
+          );
+        });
+      }
+    }
+    
+    if (scenario === 2) {
+      if (plcStatus.grinders) {
+        plcStatus.grinders.forEach((g) => {
+          const hasOutput = g.positions?.L?.output_ready || g.positions?.R?.output_ready;
+          items.push(
+            <span key={`g-${g.index}`} style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              background: g.bypass ? "#fef2f2" : (hasOutput ? "#f0fdfa" : "#f1f5f9"),
+              borderRadius: 4,
+              fontSize: 11,
+              color: g.bypass ? "#ef4444" : (hasOutput ? "#14b8a6" : "#94a3b8"),
+            }}>
+              G{g.index} {g.bypass ? "바이패스" : `L:${g.positions?.L?.output_ready ? "✓" : "-"} R:${g.positions?.R?.output_ready ? "✓" : "-"}`}
+            </span>
+          );
+        });
+      }
+    }
+    
+    if (scenario === 3) {
+      if (plcStatus.conveyors) {
+        plcStatus.conveyors.forEach((c) => {
+          items.push(
+            <span key={`c-${c.index}`} style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              background: c.call_signal ? "#fdf4ff" : "#f1f5f9",
+              borderRadius: 4,
+              fontSize: 11,
+              color: c.call_signal ? "#a855f7" : "#94a3b8",
+            }}>
+              컨베이어{c.index} {c.call_signal ? `호출(${c.qty ?? 0})` : "-"}
+            </span>
+          );
+        });
+      }
+    }
+    
+    return items;
+  };
   
   return (
-    <div style={{ fontSize: 11 }}>
-      {scenario === 1 && (
-        <>
-          {plcStatus.instocker && (
-            <div style={{ marginBottom: 8 }}>
-              <Text strong style={{ fontSize: 11 }}>인스토커</Text>
-              <div>
-                {Object.entries(plcStatus.instocker).map(([side, data]) => (
-                  <Tag key={side} color={data.work_available ? "green" : "default"} style={{ fontSize: 10, marginRight: 4 }}>
-                    {side}: {data.work_available ? "ON" : "OFF"}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-          {plcStatus.grinders && (
-            <div>
-              <Text strong style={{ fontSize: 11 }}>연마기</Text>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
-                {plcStatus.grinders.map((g) => (
-                  <Tag 
-                    key={g.index} 
-                    color={g.bypass ? "red" : "blue"} 
-                    style={{ fontSize: 10 }}
-                  >
-                    G{g.index} L:{g.positions?.L?.input_ready ? "✓" : "✗"} R:{g.positions?.R?.input_ready ? "✓" : "✗"}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-      
-      {scenario === 2 && (
-        <>
-          {plcStatus.grinders && (
-            <div style={{ marginBottom: 8 }}>
-              <Text strong style={{ fontSize: 11 }}>연마기 배출</Text>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
-                {plcStatus.grinders.map((g) => (
-                  <Tag 
-                    key={g.index} 
-                    color={g.bypass ? "red" : "cyan"} 
-                    style={{ fontSize: 10 }}
-                  >
-                    G{g.index} L:{g.positions?.L?.output_ready ? "✓" : "✗"} R:{g.positions?.R?.output_ready ? "✓" : "✗"}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-          {plcStatus.outstocker && (
-            <div>
-              <Text strong style={{ fontSize: 11 }}>아웃스토커</Text>
-              <div style={{ marginTop: 2 }}>
-                {Object.entries(plcStatus.outstocker).map(([side, data]) => (
-                  <div key={side} style={{ fontSize: 10 }}>
-                    <Text type="secondary">{side}:</Text>{" "}
-                    {Object.entries(data.rows || {}).map(([row, rowData]) => (
-                      <Tag key={row} color={rowData.load_ready ? "green" : "default"} style={{ fontSize: 9, marginRight: 2 }}>
-                        R{row}
-                      </Tag>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-      
-      {scenario === 3 && (
-        <>
-          {plcStatus.outstocker && (
-            <div style={{ marginBottom: 8 }}>
-              <Text strong style={{ fontSize: 11 }}>아웃스토커 지그</Text>
-              <div style={{ marginTop: 2 }}>
-                {Object.entries(plcStatus.outstocker).map(([side, data]) => (
-                  <div key={side} style={{ fontSize: 10 }}>
-                    <Text type="secondary">{side}:</Text>{" "}
-                    {Object.entries(data.rows || {}).map(([row, rowData]) => (
-                      <Tag key={row} color={rowData.jig_state ? "blue" : "default"} style={{ fontSize: 9, marginRight: 2 }}>
-                        R{row}{rowData.jig_state ? `:P${rowData.model_no ?? "?"}` : ""}
-                      </Tag>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {plcStatus.conveyors && (
-            <div>
-              <Text strong style={{ fontSize: 11 }}>컨베이어</Text>
-              <div style={{ marginTop: 2 }}>
-                {plcStatus.conveyors.map((c) => (
-                  <Tag key={c.index} color={c.call_signal ? "cyan" : "default"} style={{ fontSize: 10 }}>
-                    C{c.index}: {c.call_signal ? `호출(${c.qty ?? 0})` : "-"}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {renderDevices()}
     </div>
   );
 };
 
-// 확장 행 컴포넌트
-const ExpandedRow = ({ logs, plcStatus, scenario, summary }) => {
+// 태스크 아이템
+const TaskItem = ({ task, expanded, onToggle }) => {
+  const StatusIcon = STATUS_CONFIG[task.status]?.icon || ClockCircleFilled;
+  const statusColor = STATUS_CONFIG[task.status]?.color || "#64748b";
+  const statusBg = STATUS_CONFIG[task.status]?.bg || "#f8fafc";
+  
   return (
-    <div style={{ padding: "8px 16px", background: "#fafafa" }}>
-      {/* 요약 + PLC 상태 */}
-      <div style={{ display: "flex", gap: 24, marginBottom: 12 }}>
-        {summary && (
-          <div style={{ flex: 1 }}>
-            <Text strong style={{ fontSize: 12 }}>요약</Text>
-            <div style={{ fontSize: 11, marginTop: 4 }}>
-              <div><Text type="secondary">출발:</Text> {summary.source || "-"}</div>
-              <div><Text type="secondary">도착:</Text> {summary.target || "-"}</div>
-              <div><Text type="secondary">수량:</Text> {summary.pickup_count ?? 0} → {summary.dropoff_count ?? 0}</div>
-            </div>
-          </div>
-        )}
-        {plcStatus && (
-          <div style={{ flex: 2 }}>
-            <Text strong style={{ fontSize: 12 }}>생성 시점 PLC 상태</Text>
-            <div style={{ marginTop: 4 }}>
-              <PlcStatusDisplay plcStatus={plcStatus} scenario={scenario} />
-            </div>
-          </div>
-        )}
-      </div>
-      
-      {/* 로그 타임라인 */}
-      <div>
-        <Text strong style={{ fontSize: 12 }}>실행 로그</Text>
-        <div style={{ 
-          marginTop: 8, 
-          maxHeight: 200, 
-          overflow: "auto",
-          background: "#fff",
-          border: "1px solid #f0f0f0",
-          borderRadius: 4,
-          padding: 8,
+    <div style={{
+      background: "#fff",
+      borderRadius: 12,
+      marginBottom: 8,
+      overflow: "hidden",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+      border: "1px solid #f1f5f9",
+      transition: "all 0.2s ease",
+    }}>
+      {/* 헤더 */}
+      <div
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "14px 16px",
+          cursor: "pointer",
+          gap: 12,
+          transition: "background 0.15s ease",
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
+        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+      >
+        {/* 확장 아이콘 */}
+        <div style={{ color: "#94a3b8", fontSize: 10 }}>
+          {expanded ? <DownOutlined /> : <RightOutlined />}
+        </div>
+        
+        {/* 상태 아이콘 */}
+        <StatusIcon style={{ fontSize: 18, color: statusColor }} />
+        
+        {/* Task ID */}
+        <div style={{ minWidth: 60 }}>
+          <Text style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>#{task.taskId}</Text>
+        </div>
+        
+        {/* 시나리오 */}
+        <div style={{
+          padding: "3px 10px",
+          background: "#f1f5f9",
+          borderRadius: 6,
+          fontSize: 11,
+          color: "#475569",
+          fontWeight: 500,
+          minWidth: 140,
         }}>
-          {logs.map((log) => (
-            <div 
-              key={log.id} 
-              style={{ 
-                display: "flex", 
-                alignItems: "center", 
-                gap: 8,
-                padding: "4px 0",
-                borderBottom: "1px solid #f5f5f5",
-                fontSize: 11,
-              }}
-            >
-              <Text type="secondary" style={{ minWidth: 55, fontSize: 10 }}>
-                {dayjs(log.created_at).format("HH:mm:ss")}
-              </Text>
-              <Tag 
-                color={EVENT_COLORS[log.event]} 
-                style={{ margin: 0, fontSize: 10, padding: "0 4px" }}
-              >
-                {EVENT_LABELS[log.event]}
-              </Tag>
-              {log.step_seq != null && (
-                <Text type="secondary" style={{ fontSize: 10 }}>
-                  [#{log.step_seq} {log.step_type}]
-                </Text>
-              )}
-              <Text ellipsis style={{ flex: 1, fontSize: 11 }}>{log.message}</Text>
-            </div>
-          ))}
+          {task.scenario ? SCENARIO_LABELS[task.scenario] || `S${task.scenario}` : "-"}
+        </div>
+        
+        {/* AMR */}
+        <div style={{ minWidth: 100 }}>
+          <Text style={{ fontSize: 12, color: "#64748b" }}>{task.robotName}</Text>
+        </div>
+        
+        {/* 시간 */}
+        <div style={{ minWidth: 120 }}>
+          <Text style={{ fontSize: 12, color: "#94a3b8" }}>
+            {task.createdAt?.format("MM/DD HH:mm:ss")}
+          </Text>
+        </div>
+        
+        {/* 소요 시간 */}
+        <div style={{ minWidth: 50 }}>
+          {task.duration !== null && (
+            <Text style={{ fontSize: 12, color: "#64748b" }}>{task.duration}s</Text>
+          )}
+        </div>
+        
+        {/* 스텝 진행 */}
+        <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {task.stepDone > 0 && (
+            <span style={{
+              fontSize: 11,
+              padding: "2px 8px",
+              background: "#ecfdf5",
+              color: "#10b981",
+              borderRadius: 4,
+            }}>
+              {task.stepDone} 완료
+            </span>
+          )}
+          {task.stepFailed > 0 && (
+            <span style={{
+              fontSize: 11,
+              padding: "2px 8px",
+              background: "#fef2f2",
+              color: "#ef4444",
+              borderRadius: 4,
+            }}>
+              {task.stepFailed} 실패
+            </span>
+          )}
         </div>
       </div>
+      
+      {/* 확장 영역 */}
+      {expanded && (
+        <div style={{
+          borderTop: "1px solid #f1f5f9",
+          padding: 16,
+          background: "#fafbfc",
+        }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 20 }}>
+            {/* 요약 */}
+            <div>
+              <Text style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                요약
+              </Text>
+              {task.summary ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "#94a3b8", minWidth: 36 }}>출발</span>
+                    <span style={{ fontSize: 12, color: "#334155" }}>{task.summary.source || "-"}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "#94a3b8", minWidth: 36 }}>도착</span>
+                    <span style={{ fontSize: 12, color: "#334155" }}>{task.summary.target || "-"}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "#94a3b8", minWidth: 36 }}>수량</span>
+                    <span style={{ fontSize: 12, color: "#334155" }}>
+                      {task.summary.pickup_count ?? 0} → {task.summary.dropoff_count ?? 0}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <Text type="secondary" style={{ fontSize: 12 }}>-</Text>
+              )}
+            </div>
+            
+            {/* PLC 상태 */}
+            {task.plcStatus && (
+              <div>
+                <Text style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  생성 시점 PLC 상태
+                </Text>
+                <div style={{ marginTop: 8 }}>
+                  <PlcStatusCompact plcStatus={task.plcStatus} scenario={task.scenario} />
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* 로그 타임라인 */}
+          <div style={{ marginTop: 16 }}>
+            <Text style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              실행 로그
+            </Text>
+            <div style={{
+              marginTop: 8,
+              maxHeight: 180,
+              overflowY: "auto",
+              background: "#fff",
+              borderRadius: 8,
+              border: "1px solid #e2e8f0",
+            }}>
+              {task.logs.map((log, idx) => (
+                <div
+                  key={log.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 12px",
+                    borderBottom: idx < task.logs.length - 1 ? "1px solid #f1f5f9" : "none",
+                    fontSize: 12,
+                  }}
+                >
+                  <Text style={{ color: "#94a3b8", fontSize: 11, minWidth: 55, fontFamily: "monospace" }}>
+                    {dayjs(log.created_at).format("HH:mm:ss")}
+                  </Text>
+                  <span style={{
+                    fontSize: 10,
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    fontWeight: 500,
+                    minWidth: 48,
+                    textAlign: "center",
+                    background: 
+                      log.event.includes("DONE") ? "#ecfdf5" :
+                      log.event.includes("FAIL") ? "#fef2f2" :
+                      log.event.includes("CREATE") ? "#eff6ff" :
+                      log.event.includes("START") ? "#f0fdfa" :
+                      log.event.includes("CANCEL") ? "#fffbeb" : "#f1f5f9",
+                    color:
+                      log.event.includes("DONE") ? "#10b981" :
+                      log.event.includes("FAIL") ? "#ef4444" :
+                      log.event.includes("CREATE") ? "#3b82f6" :
+                      log.event.includes("START") ? "#14b8a6" :
+                      log.event.includes("CANCEL") ? "#f59e0b" : "#64748b",
+                  }}>
+                    {log.event.replace("TASK_", "").replace("STEP_", "S-")}
+                  </span>
+                  {log.step_seq != null && (
+                    <Text style={{ color: "#94a3b8", fontSize: 11 }}>
+                      #{log.step_seq}
+                    </Text>
+                  )}
+                  <Text style={{ color: "#475569", flex: 1 }} ellipsis>
+                    {log.message}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -254,17 +382,15 @@ const ExpandedRow = ({ logs, plcStatus, scenario, summary }) => {
 export default function TaskLogs() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(100);
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+  const [pageSize] = useState(100);
+  const [expandedIds, setExpandedIds] = useState(new Set());
   const [filters, setFilters] = useState({
     task_id: "",
     robot_name: "",
     event: "",
     dateRange: null,
   });
-  const [detailModal, setDetailModal] = useState({ visible: false, log: null });
 
-  // 필터 쿼리 파라미터 생성
   const queryParams = useMemo(() => {
     const params = new URLSearchParams();
     params.set("page", page);
@@ -272,16 +398,11 @@ export default function TaskLogs() {
     if (filters.task_id) params.set("task_id", filters.task_id);
     if (filters.robot_name) params.set("robot_name", filters.robot_name);
     if (filters.event) params.set("event", filters.event);
-    if (filters.dateRange?.[0]) {
-      params.set("start_date", filters.dateRange[0].toISOString());
-    }
-    if (filters.dateRange?.[1]) {
-      params.set("end_date", filters.dateRange[1].toISOString());
-    }
+    if (filters.dateRange?.[0]) params.set("start_date", filters.dateRange[0].toISOString());
+    if (filters.dateRange?.[1]) params.set("end_date", filters.dateRange[1].toISOString());
     return params.toString();
   }, [page, pageSize, filters]);
 
-  // 로그 목록 조회
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["taskLogs", queryParams],
     queryFn: async () => {
@@ -291,7 +412,6 @@ export default function TaskLogs() {
     },
   });
 
-  // 통계 조회
   const { data: stats } = useQuery({
     queryKey: ["taskLogStats"],
     queryFn: async () => {
@@ -302,12 +422,9 @@ export default function TaskLogs() {
     refetchInterval: 30000,
   });
 
-  // 오래된 로그 삭제
   const deleteMut = useMutation({
     mutationFn: async (daysOld) => {
-      const r = await fetch(`${API}/api/task-logs?days_old=${daysOld}`, {
-        method: "DELETE",
-      });
+      const r = await fetch(`${API}/api/task-logs?days_old=${daysOld}`, { method: "DELETE" });
       if (!r.ok) throw new Error("삭제 실패");
       return r.json();
     },
@@ -319,20 +436,16 @@ export default function TaskLogs() {
     onError: () => message.error("삭제 실패"),
   });
 
-  // 태스크별로 그룹화
   const groupedData = useMemo(() => {
     if (!data?.logs) return [];
     
     const groups = new Map();
     for (const log of data.logs) {
       if (!log.task_id) continue;
-      if (!groups.has(log.task_id)) {
-        groups.set(log.task_id, []);
-      }
+      if (!groups.has(log.task_id)) groups.set(log.task_id, []);
       groups.get(log.task_id).push(log);
     }
     
-    // 각 그룹을 요약 정보로 변환
     const result = [];
     for (const [taskId, logs] of groups) {
       logs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -342,14 +455,10 @@ export default function TaskLogs() {
       const stepDone = logs.filter(l => l.event === "STEP_DONE").length;
       const stepFailed = logs.filter(l => l.event === "STEP_FAILED").length;
       
-      let scenario = null;
-      let summary = null;
-      let plcStatus = null;
+      let scenario = null, summary = null, plcStatus = null;
       if (createdLog?.payload) {
         try {
-          const payload = typeof createdLog.payload === "string" 
-            ? JSON.parse(createdLog.payload) 
-            : createdLog.payload;
+          const payload = typeof createdLog.payload === "string" ? JSON.parse(createdLog.payload) : createdLog.payload;
           scenario = payload.scenario;
           summary = payload.summary;
           plcStatus = payload.plc_status;
@@ -361,30 +470,19 @@ export default function TaskLogs() {
       const duration = createdAt && endedAt ? endedAt.diff(createdAt, "second") : null;
       
       let status = "진행중";
-      let statusColor = "processing";
-      if (endLog?.event === "TASK_DONE") {
-        status = "완료";
-        statusColor = "success";
-      } else if (endLog?.event === "TASK_FAILED") {
-        status = "실패";
-        statusColor = "error";
-      } else if (endLog?.event === "TASK_CANCELED") {
-        status = "취소";
-        statusColor = "warning";
-      }
+      if (endLog?.event === "TASK_DONE") status = "완료";
+      else if (endLog?.event === "TASK_FAILED") status = "실패";
+      else if (endLog?.event === "TASK_CANCELED") status = "취소";
       
       result.push({
-        key: taskId,
         taskId,
         robotName: createdLog?.robot_name || logs[0]?.robot_name || "-",
         scenario,
         status,
-        statusColor,
         createdAt,
         duration,
         stepDone,
         stepFailed,
-        totalSteps: stepDone + stepFailed,
         logs,
         summary,
         plcStatus,
@@ -399,158 +497,133 @@ export default function TaskLogs() {
     setPage(1);
   }, []);
 
-  const handleClearFilters = useCallback(() => {
-    setFilters({
-      task_id: "",
-      robot_name: "",
-      event: "",
-      dateRange: null,
+  const toggleExpand = (taskId) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
     });
-    setPage(1);
-  }, []);
+  };
 
-  const columns = [
-    {
-      title: "Task",
-      dataIndex: "taskId",
-      key: "taskId",
-      width: 70,
-      render: (v) => <Text code style={{ fontSize: 11 }}>#{v}</Text>,
-    },
-    {
-      title: "시나리오",
-      dataIndex: "scenario",
-      key: "scenario",
-      width: 80,
-      render: (v) => v ? (
-        <Tag color="purple" style={{ fontSize: 10, margin: 0 }}>S{v}</Tag>
-      ) : "-",
-    },
-    {
-      title: "상태",
-      dataIndex: "status",
-      key: "status",
-      width: 70,
-      render: (v, record) => (
-        <Badge status={record.statusColor} text={<span style={{ fontSize: 11 }}>{v}</span>} />
-      ),
-    },
-    {
-      title: "AMR",
-      dataIndex: "robotName",
-      key: "robotName",
-      width: 100,
-      ellipsis: true,
-      render: (v) => <Text style={{ fontSize: 11 }}>{v}</Text>,
-    },
-    {
-      title: "시간",
-      dataIndex: "createdAt",
-      key: "createdAt",
-      width: 110,
-      render: (v) => v ? (
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          {v.format("MM-DD HH:mm:ss")}
-        </Text>
-      ) : "-",
-    },
-    {
-      title: "소요",
-      dataIndex: "duration",
-      key: "duration",
-      width: 60,
-      render: (v) => v !== null ? (
-        <Text type="secondary" style={{ fontSize: 11 }}>{v}초</Text>
-      ) : "-",
-    },
-    {
-      title: "스텝",
-      key: "steps",
-      width: 90,
-      render: (_, record) => (
-        <Space size={4}>
-          {record.stepDone > 0 && (
-            <Tag color="green" style={{ fontSize: 10, margin: 0 }}>{record.stepDone}완료</Tag>
-          )}
-          {record.stepFailed > 0 && (
-            <Tag color="red" style={{ fontSize: 10, margin: 0 }}>{record.stepFailed}실패</Tag>
-          )}
-        </Space>
-      ),
-    },
-  ];
+  const totalTasks = groupedData.length;
+  const doneTasks = groupedData.filter(t => t.status === "완료").length;
+  const failedTasks = groupedData.filter(t => t.status === "실패").length;
+  const runningTasks = groupedData.filter(t => t.status === "진행중").length;
 
   return (
-    <div style={{ padding: 16, background: "#f5f5f5", minHeight: "100vh" }}>
-      <Card
-        size="small"
-        title={
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <Text strong>태스크 실행 로그</Text>
-            {stats && (
-              <Space size={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  전체 <Text strong>{stats.total}</Text>
-                </Text>
-                <Text style={{ fontSize: 12, color: "#52c41a" }}>
-                  완료 <Text strong>{stats.byEvent?.TASK_DONE || 0}</Text>
-                </Text>
-                <Text style={{ fontSize: 12, color: "#ff4d4f" }}>
-                  실패 <Text strong>{stats.byEvent?.TASK_FAILED || 0}</Text>
-                </Text>
-              </Space>
-            )}
+    <div style={{ 
+      padding: 24, 
+      background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)", 
+      minHeight: "100vh" 
+    }}>
+      {/* 헤더 */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#1e293b" }}>
+              태스크 실행 내역
+            </h1>
+            <Text style={{ color: "#64748b", fontSize: 13 }}>
+              AMR 태스크 실행 기록 및 상세 로그
+            </Text>
           </div>
-        }
-        extra={
-          <Space size={8}>
+          <div style={{ display: "flex", gap: 8 }}>
             <Popconfirm
-              title="30일 이전 로그 삭제"
+              title="30일 이전 로그를 삭제합니다"
               onConfirm={() => deleteMut.mutate(30)}
               okText="삭제"
               cancelText="취소"
             >
-              <Button size="small" icon={<DeleteOutlined />} danger>
-                정리
-              </Button>
+              <button style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                background: "#fff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontSize: 13,
+                color: "#64748b",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#ef4444";
+                e.currentTarget.style.color = "#ef4444";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#e2e8f0";
+                e.currentTarget.style.color = "#64748b";
+              }}
+              >
+                <DeleteOutlined /> 정리
+              </button>
             </Popconfirm>
-            <Button 
-              size="small"
-              icon={<ReloadOutlined spin={isLoading} />} 
+            <button
               onClick={() => refetch()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                background: "#3b82f6",
+                border: "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontSize: 13,
+                color: "#fff",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#2563eb"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "#3b82f6"}
             >
-              새로고침
-            </Button>
-          </Space>
-        }
-        bodyStyle={{ padding: 12 }}
-      >
+              <ReloadOutlined spin={isLoading} /> 새로고침
+            </button>
+          </div>
+        </div>
+        
+        {/* 통계 카드 */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+          <StatCard label="전체" value={stats?.total || totalTasks} color="#334155" />
+          <StatCard label="완료" value={stats?.byEvent?.TASK_DONE || doneTasks} color="#10b981" icon={CheckCircleFilled} />
+          <StatCard label="실패" value={stats?.byEvent?.TASK_FAILED || failedTasks} color="#ef4444" icon={CloseCircleFilled} />
+          <StatCard label="진행중" value={runningTasks} color="#3b82f6" icon={ClockCircleFilled} />
+        </div>
+        
         {/* 필터 */}
-        <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{
+          display: "flex",
+          gap: 10,
+          padding: 12,
+          background: "#fff",
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        }}>
           <Input
             placeholder="Task ID"
-            prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
+            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
             value={filters.task_id}
             onChange={(e) => handleFilterChange("task_id", e.target.value)}
-            style={{ width: 100 }}
+            style={{ width: 110, borderRadius: 6 }}
             allowClear
-            size="small"
+            size="middle"
           />
           <Input
             placeholder="AMR"
             value={filters.robot_name}
             onChange={(e) => handleFilterChange("robot_name", e.target.value)}
-            style={{ width: 100 }}
+            style={{ width: 120, borderRadius: 6 }}
             allowClear
-            size="small"
+            size="middle"
           />
           <Select
-            placeholder="이벤트"
+            placeholder="상태"
             value={filters.event || undefined}
             onChange={(v) => handleFilterChange("event", v)}
             style={{ width: 100 }}
             allowClear
-            size="small"
+            size="middle"
             options={[
               { value: "TASK_CREATED", label: "생성" },
               { value: "TASK_DONE", label: "완료" },
@@ -562,69 +635,61 @@ export default function TaskLogs() {
             value={filters.dateRange}
             onChange={(v) => handleFilterChange("dateRange", v)}
             format="MM-DD"
-            size="small"
-            style={{ width: 180 }}
+            size="middle"
+            style={{ borderRadius: 6 }}
           />
-          <Button onClick={handleClearFilters} size="small">
+          <button
+            onClick={() => {
+              setFilters({ task_id: "", robot_name: "", event: "", dateRange: null });
+              setPage(1);
+            }}
+            style={{
+              padding: "4px 12px",
+              background: "transparent",
+              border: "1px solid #e2e8f0",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 13,
+              color: "#64748b",
+            }}
+          >
             초기화
-          </Button>
+          </button>
         </div>
-
-        {/* 테이블 */}
-        <Table
-          columns={columns}
-          dataSource={groupedData}
-          loading={isLoading}
-          size="small"
-          pagination={{
-            current: page,
-            pageSize: 20,
-            total: groupedData.length,
-            showSizeChanger: false,
-            showTotal: (total) => `${total}개 태스크`,
-            size: "small",
-            onChange: (p) => setPage(p),
-          }}
-          expandable={{
-            expandedRowKeys,
-            onExpandedRowsChange: (keys) => setExpandedRowKeys(keys),
-            expandedRowRender: (record) => (
-              <ExpandedRow 
-                logs={record.logs} 
-                plcStatus={record.plcStatus}
-                scenario={record.scenario}
-                summary={record.summary}
-              />
-            ),
-            expandIcon: ({ expanded, onExpand, record }) => (
-              <Button
-                type="text"
-                size="small"
-                icon={expanded ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
-                onClick={(e) => onExpand(record, e)}
-                style={{ width: 20, height: 20, padding: 0 }}
-              />
-            ),
-          }}
-          scroll={{ x: 600 }}
-          rowClassName={(record) => 
-            record.statusColor === "error" ? "row-error" : 
-            record.statusColor === "warning" ? "row-warning" : ""
-          }
-        />
-      </Card>
-
-      <style>{`
-        .row-error {
-          background: #fff2f0 !important;
-        }
-        .row-warning {
-          background: #fffbe6 !important;
-        }
-        .ant-table-expanded-row > td {
-          padding: 0 !important;
-        }
-      `}</style>
+      </div>
+      
+      {/* 태스크 리스트 */}
+      {isLoading ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
+          <Spin size="large" />
+        </div>
+      ) : groupedData.length === 0 ? (
+        <div style={{
+          background: "#fff",
+          borderRadius: 12,
+          padding: 60,
+          textAlign: "center",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        }}>
+          <Empty description="실행 내역이 없습니다" />
+        </div>
+      ) : (
+        <div>
+          {groupedData.slice(0, 50).map((task) => (
+            <TaskItem
+              key={task.taskId}
+              task={task}
+              expanded={expandedIds.has(task.taskId)}
+              onToggle={() => toggleExpand(task.taskId)}
+            />
+          ))}
+          {groupedData.length > 50 && (
+            <div style={{ textAlign: "center", padding: 16 }}>
+              <Text type="secondary">최근 50개 태스크만 표시됩니다</Text>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
