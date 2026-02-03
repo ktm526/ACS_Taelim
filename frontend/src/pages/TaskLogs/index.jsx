@@ -372,12 +372,12 @@ const StepLogItem = ({ log, steps }) => {
               return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
             }
             if (step.type === "PLC_WRITE") {
-              return p.desc ? `${p.desc} (${p.PLC_BIT}=${p.PLC_DATA})` : `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
+              return p.desc || `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
             }
             if (step.type === "PLC_WAIT" || step.type === "PLC_READ") {
               const addr = p.PLC_BIT || p.PLC_ID || "-";
               const val = p.PLC_DATA ?? p.EXPECTED ?? "-";
-              return p.desc ? `${p.desc} (${addr}==${val})` : `${addr} == ${val}`;
+              return p.desc || `${addr} == ${val}`;
             }
             return JSON.stringify(p);
           })()}
