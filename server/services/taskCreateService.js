@@ -483,6 +483,15 @@ function getAvailableOutstockerLoadRows(outstockerSides) {
   });
 }
 
+function buildPreferredAmrSlotOrder(slotNos) {
+  const baseOrder = [21, 31, 22, 32, 23, 33];
+  const baseSet = new Set(baseOrder);
+  const filtered = baseOrder.filter((n) => slotNos.includes(n));
+  if (!filtered.length) return [...slotNos];
+  const remaining = slotNos.filter((n) => !baseSet.has(n));
+  return [...filtered, ...remaining.sort((a, b) => a - b)];
+}
+
 async function getActiveTasks() {
   return Task.findAll({
     where: { status: ["PENDING", "RUNNING", "PAUSED"] },
@@ -581,6 +590,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     .map((s) => (typeof s === "object" ? s.slot_no : s))
     .filter((n) => n != null)
     .sort((a, b) => a - b);
+  const loadOrder = buildPreferredAmrSlotOrder(slotNos);
   
   if (slotNos.length < slotAssignments.length) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: AMR 슬롯 부족 (필요 ${slotAssignments.length} / 보유 ${slotNos.length})`);
@@ -1051,7 +1061,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
 
   for (const req of limitedRequests) {
     for (let i = 0; i < req.qty; i++) {
-      const amrSlotNo = slotNos[slotIndex];
+      const amrSlotNo = loadOrder[slotIndex];
       const rowInfo = rows[rowIndex];
       if (!rowInfo) break;
       pickupInfos.push({
@@ -1149,11 +1159,13 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   // ═══════════════════════════════════════════════════════════════
   
   // 스택 하역 순서로 정렬: 스택1(20번대) 먼저 내림차순, 그 다음 스택2(30번대) 내림차순
+  const usedLoadOrder = loadOrder.filter((slotNo) => pickupInfos.some((p) => p.amrSlotNo === slotNo));
+  const unloadOrder = [...usedLoadOrder].reverse();
+  const unloadIndex = new Map(unloadOrder.map((slotNo, idx) => [slotNo, idx]));
   const sortedForUnload = [...pickupInfos].sort((a, b) => {
-    const aStack = a.amrSlotNo < 30 ? 1 : 2;
-    const bStack = b.amrSlotNo < 30 ? 1 : 2;
-    if (aStack !== bStack) return aStack - bStack; // 스택1 먼저
-    return b.amrSlotNo - a.amrSlotNo; // 같은 스택 내에서 내림차순 (위부터)
+    const aIdx = unloadIndex.get(a.amrSlotNo) ?? 0;
+    const bIdx = unloadIndex.get(b.amrSlotNo) ?? 0;
+    return aIdx - bIdx;
   });
   
   //console.log(`[TaskCreate] 컨베이어 하역 순서:`);
@@ -1370,14 +1382,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     return;
   }
 
-  const stack1 = slotNos.filter((n) => n >= 20 && n < 30).sort((a, b) => a - b);
-  const stack2 = slotNos.filter((n) => n >= 30 && n < 40).sort((a, b) => a - b);
-  const interleavedSlotNos = [];
-  const maxLen = Math.max(stack1.length, stack2.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (stack1[i] !== undefined) interleavedSlotNos.push(stack1[i]);
-    if (stack2[i] !== undefined) interleavedSlotNos.push(stack2[i]);
-  }
+  const loadOrder = buildPreferredAmrSlotOrder(slotNos);
 
   const outputsSorted = [...grinderOutputs].sort((a, b) => {
     if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 위에서부터(높은 번호)
@@ -1387,9 +1392,10 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   const selectedOutputs = outputsSorted.slice(0, maxCount);
   const selectedOutRows = outRows.slice(0, maxCount);
 
+  const loadOrderUsed = loadOrder.slice(0, maxCount);
   const pairs = selectedOutputs.map((output, idx) => ({
     output,
-    amrSlotNo: interleavedSlotNos[idx],
+    amrSlotNo: loadOrderUsed[idx],
   }));
 
   const steps = [];
@@ -1459,12 +1465,13 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     }
   }
 
-  // PHASE 2: 아웃스토커 적재 (AMR 스택 상단부터 하역)
+  // PHASE 2: 아웃스토커 적재 (AMR 적재의 역순으로 하역)
+  const unloadOrder = [...loadOrderUsed].reverse();
+  const orderIndex = new Map(unloadOrder.map((slotNo, idx) => [slotNo, idx]));
   const sortedForUnload = [...pairs].sort((a, b) => {
-    const aStack = a.amrSlotNo < 30 ? 1 : 2;
-    const bStack = b.amrSlotNo < 30 ? 1 : 2;
-    if (aStack !== bStack) return aStack - bStack;
-    return b.amrSlotNo - a.amrSlotNo;
+    const aIdx = orderIndex.get(a.amrSlotNo) ?? 0;
+    const bIdx = orderIndex.get(b.amrSlotNo) ?? 0;
+    return aIdx - bIdx;
   });
 
   // 아웃스토커는 스택형 → 아래부터 적재 (정렬된 outRow를 하역 순서에 매핑)
