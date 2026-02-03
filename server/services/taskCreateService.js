@@ -67,6 +67,111 @@ async function logTaskEvent(taskId, event, message, options = {}) {
   }
 }
 
+// 시나리오별 PLC 상태 수집 함수
+function collectPlcStatusForScenario(scenario, config) {
+  const status = {};
+  
+  if (scenario === 1) {
+    // 인스토커 상태
+    status.instocker = {};
+    const sideSignals = safeParse(config.instockerSideSignals, {});
+    for (const side of SIDES) {
+      const signals = sideSignals[side] || {};
+      status.instocker[side] = {
+        work_available: signals.work_available_id ? plc.getBit(signals.work_available_id) : null,
+      };
+    }
+    // 인스토커 슬롯 상태
+    status.instocker_slots = {};
+    for (const side of SIDES) {
+      const slots = getSideSlots(config.instockerSlots, side);
+      status.instocker_slots[side] = slots.slice(0, 6).map(slot => ({
+        key: slot.key,
+        product_type: slot.product_type_value,
+        has_product: slot.product_type_id ? plc.getBit(slot.product_type_id) : null,
+      }));
+    }
+    // 연마기 상태
+    status.grinders = [];
+    for (const grinder of (config.grinders || [])) {
+      const bypassOn = grinder.bypass_id ? plc.getBit(grinder.bypass_id) : false;
+      const grinderStatus = {
+        index: grinder.index,
+        bypass: bypassOn,
+        positions: {},
+      };
+      for (const pos of POSITIONS) {
+        const posData = grinder.positions?.[pos] || {};
+        grinderStatus.positions[pos] = {
+          input_ready: posData.input_ready_id ? plc.getBit(posData.input_ready_id) : null,
+        };
+      }
+      status.grinders.push(grinderStatus);
+    }
+  } else if (scenario === 2) {
+    // 연마기 배출 상태
+    status.grinders = [];
+    for (const grinder of (config.grinders || [])) {
+      const bypassOn = grinder.bypass_id ? plc.getBit(grinder.bypass_id) : false;
+      const grinderStatus = {
+        index: grinder.index,
+        bypass: bypassOn,
+        positions: {},
+      };
+      for (const pos of POSITIONS) {
+        const posData = grinder.positions?.[pos] || {};
+        grinderStatus.positions[pos] = {
+          output_ready: posData.output_ready_id ? plc.getBit(posData.output_ready_id) : null,
+        };
+      }
+      status.grinders.push(grinderStatus);
+    }
+    // 아웃스토커 적재 가능 상태
+    status.outstocker = {};
+    const outstockerSides = config.outstockerSides || {};
+    for (const side of OUT_SIDES) {
+      const sideData = outstockerSides[side] || {};
+      const bypassOn = sideData.bypass_id ? plc.getBit(sideData.bypass_id) : false;
+      status.outstocker[side] = {
+        bypass: bypassOn,
+        rows: {},
+      };
+      for (const row of OUT_ROWS) {
+        const rowData = sideData.rows?.[row] || {};
+        status.outstocker[side].rows[row] = {
+          load_ready: rowData.load_ready_id ? plc.getBit(rowData.load_ready_id) : null,
+        };
+      }
+    }
+  } else if (scenario === 3) {
+    // 아웃스토커 지그 상태
+    status.outstocker = {};
+    const outstockerSides = config.outstockerSides || {};
+    for (const side of OUT_SIDES) {
+      const sideData = outstockerSides[side] || {};
+      status.outstocker[side] = { rows: {} };
+      for (const row of OUT_ROWS) {
+        const rowData = sideData.rows?.[row] || {};
+        status.outstocker[side].rows[row] = {
+          jig_state: rowData.jig_state_id ? plc.getBit(rowData.jig_state_id) : null,
+          model_no: rowData.model_no_id ? plc.getWord(rowData.model_no_id) : null,
+        };
+      }
+    }
+    // 컨베이어 호출 상태
+    status.conveyors = [];
+    for (const conv of (config.conveyors || [])) {
+      status.conveyors.push({
+        index: conv.index,
+        call_signal: conv.call_signal_id ? plc.getBit(conv.call_signal_id) : null,
+        qty: conv.call_qty_id ? plc.getWord(conv.call_qty_id) : null,
+      });
+    }
+  }
+  
+  return status;
+}
+
 const SIDES = ["L", "R"];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
 const POSITIONS = ["L", "R"];
@@ -703,10 +808,11 @@ async function createTaskForSides(sides, config, activeTasks) {
   );
 
   console.log(`[TaskCreate] ${sideLabel}: Task#${task.id} 생성 (시나리오1, ${steps.length} 스텝)`);
+  const plcStatus = collectPlcStatusForScenario(1, config);
   await logTaskEvent(task.id, "TASK_CREATED", `인스토커 ${sideLabel} → 연마기 태스크 생성 (${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { sides: sideLabel, stepsCount: steps.length, scenario: 1, summary },
+    payload: { sides: sideLabel, stepsCount: steps.length, scenario: 1, summary, plc_status: plcStatus },
   });
 }
 
@@ -1137,10 +1243,11 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   //console.log(
   //  `[TaskCreate] 컨베이어 통합(${summaryStr}): Task#${task.id} 발행 (시나리오3, ${steps.length} steps)`
   //);
+  const plcStatus = collectPlcStatusForScenario(3, config);
   await logTaskEvent(task.id, "TASK_CREATED", `아웃스토커 → 컨베이어 통합 태스크 (${summaryStr}, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { conveyors: validRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length, scenario: 3, summary },
+    payload: { conveyors: validRequests.map(r => ({ index: r.item.index, qty: r.qty })), stepsCount: steps.length, scenario: 3, summary, plc_status: plcStatus },
   });
 }
 
@@ -1291,6 +1398,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   });
 
   let lastOutAmrPos = null;
+  let lastOutVisionAmrPos = null;
   for (const pair of sortedForUnload) {
     const { outRow, amrSlotNo, output } = pair;
 
@@ -1309,13 +1417,15 @@ async function createTaskForGrinderOutput(config, activeTasks) {
       });
     }
 
+    const visionCheck = outRow.amr_pos !== lastOutVisionAmrPos ? 1 : 0;
+    lastOutVisionAmrPos = outRow.amr_pos;
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
         CMD_ID: 1,
         CMD_FROM: amrSlotNo,
         CMD_TO: Number(outRow.mani_pos),
-        VISION_CHECK: 0,
+        VISION_CHECK: visionCheck,
         PRODUCT_NO: output.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
       }),
@@ -1398,10 +1508,11 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   );
 
   //console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (시나리오2, ${steps.length} steps)`);
+  const plcStatus = collectPlcStatusForScenario(2, config);
   await logTaskEvent(task.id, "TASK_CREATED", `연마기 → 아웃스토커 태스크 (${maxCount}개, ${steps.length} 스텝)`, {
     robotId: robot.id,
     robotName: robot.name,
-    payload: { count: maxCount, stepsCount: steps.length, scenario: 2, summary },
+    payload: { count: maxCount, stepsCount: steps.length, scenario: 2, summary, plc_status: plcStatus },
   });
 }
 
