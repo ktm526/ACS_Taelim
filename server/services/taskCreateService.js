@@ -593,6 +593,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     .filter((n) => n != null)
     .sort((a, b) => a - b);
   const loadOrder = buildPreferredAmrSlotOrder(slotNos);
+  const loadOrder = buildPreferredAmrSlotOrder(slotNos);
   
   if (slotNos.length < slotAssignments.length) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: AMR 슬롯 부족 (필요 ${slotAssignments.length} / 보유 ${slotNos.length})`);
