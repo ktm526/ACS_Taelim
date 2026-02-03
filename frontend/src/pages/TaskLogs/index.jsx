@@ -407,6 +407,8 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary, stepLogs }) => {
 
   const cfg = evtConfig[log.event] || { color: "#6b7280", label: log.event };
   const hasDetail = log.event === "TASK_CREATED" || (log.event === "TASK_STARTED" && stepLogs?.length > 0);
+  const stepEventLogs = (stepLogs || []).filter((l) => l.event.startsWith("STEP_"));
+  const execEventLogs = (stepLogs || []).filter((l) => !l.event.startsWith("STEP_"));
 
   return (
     <div style={{
@@ -454,7 +456,7 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary, stepLogs }) => {
         </span>
         <span style={{ color: "#374151", fontSize: 11, flex: 1 }}>{log.message}</span>
         {log.event === "TASK_STARTED" && stepLogs?.length > 0 && (
-          <span style={{ color: "#9ca3af", fontSize: 10 }}>{stepLogs.length}스텝</span>
+          <span style={{ color: "#9ca3af", fontSize: 10 }}>{stepLogs.length}건</span>
         )}
       </div>
 
@@ -488,7 +490,39 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary, stepLogs }) => {
 
           {log.event === "TASK_STARTED" && stepLogs?.length > 0 && (
             <div style={{ maxHeight: 300, overflowY: "auto" }}>
-              {stepLogs.map((slog) => (
+              {execEventLogs.map((elog) => {
+                const eCfg = evtConfig[elog.event] || { color: "#6b7280", label: elog.event };
+                return (
+                  <div
+                    key={elog.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "4px 0",
+                      gap: 6,
+                      fontSize: 10,
+                    }}
+                  >
+                    <span style={{ color: "#9ca3af", fontFamily: "monospace", minWidth: 45 }}>
+                      {dayjs(elog.created_at).format("HH:mm:ss")}
+                    </span>
+                    <span
+                      style={{
+                        padding: "1px 4px",
+                        borderRadius: 2,
+                        background: `${eCfg.color}15`,
+                        color: eCfg.color,
+                        fontWeight: 500,
+                        fontSize: 9,
+                      }}
+                    >
+                      {eCfg.label}
+                    </span>
+                    <span style={{ color: "#4b5563", flex: 1 }}>{elog.message}</span>
+                  </div>
+                );
+              })}
+              {stepEventLogs.map((slog) => (
                 <StepLogItem key={slog.id} log={slog} steps={steps} />
               ))}
             </div>
@@ -504,9 +538,14 @@ const TaskGroup = ({ task, expanded, onToggle }) => {
   const StatusIcon = STATUS_CONFIG[task.status]?.icon || ClockCircleFilled;
   const statusColor = STATUS_CONFIG[task.status]?.color || "#6b7280";
 
-  // 스텝 로그를 분리 (TASK_STARTED 하위로 이동)
-  const mainLogs = (task.logs || []).filter(l => !l.event.startsWith("STEP_"));
-  const stepLogs = (task.logs || []).filter(l => l.event.startsWith("STEP_"));
+  // 실행 로그를 분리 (TASK_STARTED 하위로 이동)
+  const execEvents = new Set(["TASK_PAUSED", "TASK_RESUMED", "TASK_RESTARTED"]);
+  const mainLogs = (task.logs || []).filter(
+    (l) => !l.event.startsWith("STEP_") && !execEvents.has(l.event)
+  );
+  const stepLogs = (task.logs || []).filter(
+    (l) => l.event.startsWith("STEP_") || execEvents.has(l.event)
+  );
 
   return (
     <div style={{
