@@ -64,88 +64,140 @@ const StatCard = ({ label, value, color, icon: Icon }) => (
 const PlcStatusCompact = ({ plcStatus, scenario }) => {
   if (!plcStatus) return null;
   
+  const Badge = ({ active, activeColor = "#10b981", activeBg = "#ecfdf5", children }) => (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
+      padding: "2px 8px",
+      background: active ? activeBg : "#f1f5f9",
+      borderRadius: 4,
+      fontSize: 11,
+      color: active ? activeColor : "#94a3b8",
+    }}>
+      {children}
+    </span>
+  );
+  
   const renderDevices = () => {
     const items = [];
     
     if (scenario === 1) {
+      // 인스토커 작업 가능 상태
       if (plcStatus.instocker) {
         Object.entries(plcStatus.instocker).forEach(([side, data]) => {
           items.push(
-            <span key={`ins-${side}`} style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              background: data.work_available ? "#ecfdf5" : "#f1f5f9",
-              borderRadius: 4,
-              fontSize: 11,
-              color: data.work_available ? "#10b981" : "#94a3b8",
-            }}>
+            <Badge key={`ins-${side}`} active={data.work_available}>
               인스토커 {side}
               {data.work_available && <CheckCircleFilled style={{ fontSize: 10 }} />}
-            </span>
+            </Badge>
           );
         });
       }
+      // 인스토커 슬롯 상태 (제품 정보)
+      if (plcStatus.instocker_slots) {
+        Object.entries(plcStatus.instocker_slots).forEach(([side, slots]) => {
+          const activeSlots = (slots || []).filter(s => s.has_product);
+          const productTypes = activeSlots.map(s => `P${s.product_type ?? "?"}`).join(",");
+          items.push(
+            <Badge 
+              key={`ins-slot-${side}`}
+              active={activeSlots.length > 0}
+              activeColor="#f59e0b"
+              activeBg="#fffbeb"
+            >
+              {side}슬롯 {activeSlots.length > 0 ? `${activeSlots.length}개 (${productTypes})` : "비어있음"}
+            </Badge>
+          );
+        });
+      }
+      // 연마기 투입 가능 상태
       if (plcStatus.grinders) {
         plcStatus.grinders.forEach((g) => {
           const hasInput = g.positions?.L?.input_ready || g.positions?.R?.input_ready;
           items.push(
-            <span key={`g-${g.index}`} style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              background: g.bypass ? "#fef2f2" : (hasInput ? "#eff6ff" : "#f1f5f9"),
-              borderRadius: 4,
-              fontSize: 11,
-              color: g.bypass ? "#ef4444" : (hasInput ? "#3b82f6" : "#94a3b8"),
-            }}>
+            <Badge 
+              key={`g-${g.index}`} 
+              active={g.bypass || hasInput}
+              activeColor={g.bypass ? "#ef4444" : "#3b82f6"}
+              activeBg={g.bypass ? "#fef2f2" : "#eff6ff"}
+            >
               G{g.index} {g.bypass ? "바이패스" : `L:${g.positions?.L?.input_ready ? "✓" : "-"} R:${g.positions?.R?.input_ready ? "✓" : "-"}`}
-            </span>
+            </Badge>
           );
         });
       }
     }
     
     if (scenario === 2) {
+      // 연마기 배출 가능 상태
       if (plcStatus.grinders) {
         plcStatus.grinders.forEach((g) => {
           const hasOutput = g.positions?.L?.output_ready || g.positions?.R?.output_ready;
           items.push(
-            <span key={`g-${g.index}`} style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              background: g.bypass ? "#fef2f2" : (hasOutput ? "#f0fdfa" : "#f1f5f9"),
-              borderRadius: 4,
-              fontSize: 11,
-              color: g.bypass ? "#ef4444" : (hasOutput ? "#14b8a6" : "#94a3b8"),
-            }}>
+            <Badge 
+              key={`g-${g.index}`} 
+              active={g.bypass || hasOutput}
+              activeColor={g.bypass ? "#ef4444" : "#14b8a6"}
+              activeBg={g.bypass ? "#fef2f2" : "#f0fdfa"}
+            >
               G{g.index} {g.bypass ? "바이패스" : `L:${g.positions?.L?.output_ready ? "✓" : "-"} R:${g.positions?.R?.output_ready ? "✓" : "-"}`}
-            </span>
+            </Badge>
+          );
+        });
+      }
+      // 아웃스토커 적재 가능 상태
+      if (plcStatus.outstocker) {
+        Object.entries(plcStatus.outstocker).forEach(([side, data]) => {
+          const readyRows = Object.entries(data.rows || {}).filter(([_, r]) => r.load_ready).map(([row]) => `R${row}`);
+          const isBypass = data.bypass;
+          items.push(
+            <Badge 
+              key={`out-${side}`}
+              active={isBypass || readyRows.length > 0}
+              activeColor={isBypass ? "#ef4444" : "#8b5cf6"}
+              activeBg={isBypass ? "#fef2f2" : "#f5f3ff"}
+            >
+              아웃{side} {isBypass ? "바이패스" : (readyRows.length > 0 ? readyRows.join(",") : "대기")}
+            </Badge>
           );
         });
       }
     }
     
     if (scenario === 3) {
+      // 아웃스토커 지그 상태
+      if (plcStatus.outstocker) {
+        Object.entries(plcStatus.outstocker).forEach(([side, data]) => {
+          const jigRows = Object.entries(data.rows || {})
+            .filter(([_, r]) => r.jig_state)
+            .map(([row, r]) => `R${row}:P${r.model_no ?? "?"}`);
+          const hasJig = jigRows.length > 0;
+          items.push(
+            <Badge 
+              key={`out-${side}`}
+              active={hasJig}
+              activeColor="#8b5cf6"
+              activeBg="#f5f3ff"
+            >
+              아웃{side} {hasJig ? jigRows.join(" ") : "지그없음"}
+            </Badge>
+          );
+        });
+      }
+      // 컨베이어 호출 상태
       if (plcStatus.conveyors) {
         plcStatus.conveyors.forEach((c) => {
+          const hasCall = c.call_signal === 1 || c.call_signal === true;
           items.push(
-            <span key={`c-${c.index}`} style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              background: c.call_signal ? "#fdf4ff" : "#f1f5f9",
-              borderRadius: 4,
-              fontSize: 11,
-              color: c.call_signal ? "#a855f7" : "#94a3b8",
-            }}>
-              컨베이어{c.index} {c.call_signal ? `호출(${c.qty ?? 0})` : "-"}
-            </span>
+            <Badge 
+              key={`c-${c.index}`}
+              active={hasCall}
+              activeColor="#a855f7"
+              activeBg="#fdf4ff"
+            >
+              C{c.index} {hasCall ? `호출 ${c.qty ?? 0}개` : `대기`}
+            </Badge>
           );
         });
       }
@@ -154,9 +206,14 @@ const PlcStatusCompact = ({ plcStatus, scenario }) => {
     return items;
   };
   
+  const devices = renderDevices();
+  if (devices.length === 0) {
+    return <span style={{ fontSize: 11, color: "#94a3b8" }}>PLC 상태 정보 없음</span>;
+  }
+  
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {renderDevices()}
+      {devices}
     </div>
   );
 };
