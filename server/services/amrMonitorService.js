@@ -952,8 +952,31 @@ async function reconnectAmr(name) {
     console.log(`[AMR] reconnect attempt completed for ${name} (${ip})`);
 }
 
+// ─────────────────────────────────────────────────────────────
+// 로봇 팔(Doosan) 상태 조회
+// ─────────────────────────────────────────────────────────────
+async function getDoosanArmState(robotIp) {
+  try {
+    const response = await sendAndReceive(
+      robotIp,
+      DOOSAN_STATE_PORT,
+      DOOSAN_STATE_API,
+      DOOSAN_STATE_MESSAGE,
+      3000
+    );
+    if (response && response.response) {
+      return response.response;
+    }
+    return null;
+  } catch (e) {
+    console.warn(`[AMR] Doosan 상태 조회 실패 (${robotIp}): ${e.message}`);
+    return null;
+  }
+}
+
 console.log('🔧 AMR Monitor Service started');
 module.exports = {
     lastRecTime, sockets,
     reconnectAmr,
+    getDoosanArmState,
 };

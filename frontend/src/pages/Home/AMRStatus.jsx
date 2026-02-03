@@ -582,6 +582,8 @@ export default function AMRStatus() {
   const [hoveredId, setHoveredId] = useState(null);
   const [form] = Form.useForm();
   const [robotSettingsForm] = Form.useForm();
+  const [armState, setArmState] = useState(null);
+  const [armStateLoading, setArmStateLoading] = useState(false);
   
   // 패스워드 확인 훅 추가
   const passwordConfirm = usePasswordConfirm();
@@ -664,6 +666,35 @@ export default function AMRStatus() {
       }
     }
   }, [amrs, detailVisible, selectedAmr?.id, getAmrStatus, qc]);
+
+  // 로봇 팔(Doosan) 상태 조회
+  useEffect(() => {
+    if (!detailVisible || !selectedAmr?.id) {
+      setArmState(null);
+      return;
+    }
+    
+    const fetchArmState = async () => {
+      setArmStateLoading(true);
+      try {
+        const r = await fetch(`${API}/api/robots/${selectedAmr.id}/arm-state`);
+        if (r.ok) {
+          const data = await r.json();
+          setArmState(data);
+        } else {
+          setArmState(null);
+        }
+      } catch {
+        setArmState(null);
+      } finally {
+        setArmStateLoading(false);
+      }
+    };
+    
+    fetchArmState();
+    const interval = setInterval(fetchArmState, 2000); // 2초마다 갱신
+    return () => clearInterval(interval);
+  }, [detailVisible, selectedAmr?.id]);
 
   // 2) AMR 추가
   const addMut = useMutation({
@@ -1429,6 +1460,7 @@ export default function AMRStatus() {
                     key: "summary",
                     label: "요약",
                     children: (
+                      <>
                       <Descriptions
                         bordered
                         size="small"
@@ -1448,22 +1480,8 @@ export default function AMRStatus() {
                         <Descriptions.Item label="작업 단계">{selectedAmr.task_step || "-"}</Descriptions.Item>
                         <Descriptions.Item label="다음 위치">{selectedAmr.next_location || "-"}</Descriptions.Item>
 
-                        <Descriptions.Item label="HOME 스테이션">{selectedAmr.home_station || "-"}</Descriptions.Item>
-                        <Descriptions.Item label="HOME_PRE 스테이션">{selectedAmr.home_pre_station || "-"}</Descriptions.Item>
-                        <Descriptions.Item label="충전 스테이션">{selectedAmr.charge_station || "-"}</Descriptions.Item>
-                        <Descriptions.Item label="충전_PRE 스테이션">{selectedAmr.charge_pre_station || "-"}</Descriptions.Item>
-                        <Descriptions.Item label="HOME(표시명)" span={2}>
-                          {resolveStationLabel(selectedAmr.home_station)}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="HOME_PRE(표시명)" span={2}>
-                          {resolveStationLabel(selectedAmr.home_pre_station)}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="충전(표시명)" span={2}>
-                          {resolveStationLabel(selectedAmr.charge_station)}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="충전_PRE(표시명)" span={2}>
-                          {resolveStationLabel(selectedAmr.charge_pre_station)}
-                        </Descriptions.Item>
+                        <Descriptions.Item label="HOME">{selectedAmr.home_station || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="충전">{selectedAmr.charge_station || "-"}</Descriptions.Item>
 
                         <Descriptions.Item label="배터리" span={2}>
                           <Space>
@@ -1493,6 +1511,91 @@ export default function AMRStatus() {
                           </Space>
                         </Descriptions.Item>
                       </Descriptions>
+                      
+                      {/* 로봇 팔 상태 */}
+                      <Divider style={{ margin: '12px 0' }}>로봇 팔 (Doosan)</Divider>
+                      {armStateLoading && !armState ? (
+                        <Text type="secondary">로딩 중...</Text>
+                      ) : armState ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          {/* 상태 정보 */}
+                          <Card size="small" title="상태" style={{ fontSize: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                              <div>
+                                <Text type="secondary">태스크:</Text>{' '}
+                                <Tag color={armState.TASK_STATUS === '0' ? 'default' : 'processing'}>
+                                  {armState.TASK_STATUS === '0' ? '대기' : `실행중(${armState.TASK_STATUS})`}
+                                </Tag>
+                              </div>
+                              <div>
+                                <Text type="secondary">상태:</Text>{' '}
+                                <Tag color={armState.ROBOT_STATUS === '0' ? 'green' : 'orange'}>
+                                  {armState.ROBOT_STATUS === '0' ? '정상' : armState.ROBOT_STATUS}
+                                </Tag>
+                              </div>
+                              <div>
+                                <Text type="secondary">로봇에러:</Text>{' '}
+                                <Tag color={armState.ROBOT_ERROR === '0' ? 'default' : 'error'}>
+                                  {armState.ROBOT_ERROR}
+                                </Tag>
+                              </div>
+                              <div>
+                                <Text type="secondary">비전에러:</Text>{' '}
+                                <Tag color={armState.VISION_ERROR === '0' ? 'default' : 'error'}>
+                                  {armState.VISION_ERROR}
+                                </Tag>
+                              </div>
+                              <div>
+                                <Text type="secondary">CMD FROM:</Text> {armState.ROBOT_CMD_FROM}
+                              </div>
+                              <div>
+                                <Text type="secondary">CMD TO:</Text> {armState.ROBOT_CMD_TO}
+                              </div>
+                            </div>
+                          </Card>
+                          
+                          {/* 관절 온도 */}
+                          <Card size="small" title="관절 온도 (°C)" style={{ fontSize: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, textAlign: 'center' }}>
+                              {[1,2,3,4,5,6].map(i => {
+                                const temp = parseInt(armState[`JOINT_MOTOR_TEMPERATURE_${i}`] || '0', 10);
+                                const color = temp > 50 ? '#ff4d4f' : temp > 40 ? '#faad14' : '#52c41a';
+                                return (
+                                  <div key={i}>
+                                    <Text type="secondary">J{i}:</Text>{' '}
+                                    <Text style={{ color, fontWeight: 500 }}>{temp}</Text>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </Card>
+                          
+                          {/* 관절 위치 */}
+                          <Card size="small" title="관절 위치" style={{ fontSize: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, textAlign: 'center' }}>
+                              {[1,2,3,4,5,6].map(i => (
+                                <div key={i}>
+                                  <Text type="secondary">J{i}:</Text> {armState[`JOINT_POSITION_${i}`]}
+                                </div>
+                              ))}
+                            </div>
+                          </Card>
+                          
+                          {/* 관절 토크 */}
+                          <Card size="small" title="관절 토크" style={{ fontSize: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, textAlign: 'center' }}>
+                              {[1,2,3,4,5,6].map(i => (
+                                <div key={i}>
+                                  <Text type="secondary">J{i}:</Text> {armState[`JOINT_TORQUE_${i}`]}
+                                </div>
+                              ))}
+                            </div>
+                          </Card>
+                        </div>
+                      ) : (
+                        <Text type="secondary">로봇 팔 상태를 가져올 수 없습니다</Text>
+                      )}
+                      </>
                     ),
                   },
                   {

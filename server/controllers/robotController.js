@@ -4,6 +4,7 @@ const Map = require('../models/Map');
 const { Task, TaskStep } = require('../models');
 const { Op } = require('sequelize');
 const { sendGotoNav } = require('../services/navService');
+const { getDoosanArmState } = require('../services/amrMonitorService');
 
 // 헬퍼 함수들
 const getCls = (s) => {
@@ -312,5 +313,29 @@ exports.sendToCharge = async (req, res) => {
     } catch (err) {
         console.error('[Robot.sendToCharge] error:', err);
         return res.status(500).json({ message: err.message });
+    }
+};
+
+// 로봇 팔(Doosan) 상태 조회
+exports.getArmState = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const robot = await Robot.findByPk(id);
+        if (!robot) {
+            return res.status(404).json({ message: '로봇을 찾을 수 없습니다' });
+        }
+        if (!robot.ip) {
+            return res.status(400).json({ message: '로봇 IP가 설정되지 않았습니다' });
+        }
+        
+        const armState = await getDoosanArmState(robot.ip);
+        if (!armState) {
+            return res.status(500).json({ message: '로봇 팔 상태 조회 실패' });
+        }
+        
+        res.json(armState);
+    } catch (e) {
+        console.error('[Robot.getArmState] error:', e);
+        res.status(500).json({ message: e.message });
     }
 };
