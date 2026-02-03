@@ -291,9 +291,9 @@ export default function Canvas() {
         case "MANI_WORK":
           return `ID:${payload.CMD_ID} FROM:${payload.CMD_FROM} TO:${payload.CMD_TO}${payload.VISION_CHECK === 1 ? " Vision✓" : ""}`;
         case "PLC_WRITE":
-          return `${payload.PLC_BIT}=${payload.PLC_DATA}`;
+          return payload.desc || `${payload.PLC_BIT}=${payload.PLC_DATA}`;
         case "PLC_READ":
-          return `${payload.PLC_ID} == ${payload.EXPECTED}`;
+          return payload.desc || `${payload.PLC_ID} == ${payload.EXPECTED}`;
         default:
           return JSON.stringify(payload);
       }

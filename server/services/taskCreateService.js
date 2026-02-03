@@ -702,11 +702,13 @@ async function createTaskForSides(sides, config, activeTasks) {
       payload: JSON.stringify({ dest: target.station }),
     });
     
+    const gLabel = `연마기 G${target.grinderIndex}-${target.position}`;
+    
     // 2. 도착 후 안전위치 = 0
     if (target.safe_pos_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.safe_pos_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: target.safe_pos_id, PLC_DATA: 0, desc: `${gLabel} 안전위치 해제` }),
       });
     }
     
@@ -714,13 +716,13 @@ async function createTaskForSides(sides, config, activeTasks) {
     if (target.input_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 0, desc: `${gLabel} 투입완료 초기화` }),
       });
     }
     if (target.input_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 1, desc: `${gLabel} 투입중 ON` }),
       });
     }
     
@@ -741,13 +743,13 @@ async function createTaskForSides(sides, config, activeTasks) {
     if (target.input_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 0, desc: `${gLabel} 투입중 OFF` }),
       });
     }
     if (target.input_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 1, desc: `${gLabel} 투입완료 ON` }),
       });
     }
     
@@ -755,19 +757,19 @@ async function createTaskForSides(sides, config, activeTasks) {
     if (target.input_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: target.input_done_id, PLC_DATA: 0, desc: `${gLabel} 투입완료 초기화` }),
       });
     }
     if (target.input_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: target.input_in_progress_id, PLC_DATA: 0, desc: `${gLabel} 투입중 OFF` }),
       });
     }
     if (target.safe_pos_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: target.safe_pos_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: target.safe_pos_id, PLC_DATA: 1, desc: `${gLabel} 안전위치 ON` }),
       });
     }
     
@@ -1076,11 +1078,13 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
       payload: JSON.stringify({ dest: currentAmrPos }),
     });
     
+    const outLabel = `아웃스토커 ${info.rowInfo.side}-R${info.rowInfo.row}`;
+    
     // 꺼내기 직전: 작업중 신호 ON
     if (info.rowInfo.working_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: info.rowInfo.working_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.working_id, PLC_DATA: 1, desc: `${outLabel} 작업중 ON` }),
       });
     }
     
@@ -1100,13 +1104,13 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     if (info.rowInfo.working_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: info.rowInfo.working_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.working_id, PLC_DATA: 0, desc: `${outLabel} 작업중 OFF` }),
       });
     }
     if (info.rowInfo.unload_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 1, desc: `${outLabel} 배출완료 ON` }),
       });
     }
   }
@@ -1116,9 +1120,10 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   // ═══════════════════════════════════════════════════════════════
   for (const info of pickupInfos) {
     if (info.rowInfo.unload_done_id) {
+      const outLabel = `아웃스토커 ${info.rowInfo.side}-R${info.rowInfo.row}`;
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: info.rowInfo.unload_done_id, PLC_DATA: 0, desc: `${outLabel} 배출완료 초기화` }),
       });
     }
   }
@@ -1159,43 +1164,45 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
       lastConveyorAmrPos = amrPos;
     }
     
+    const cLabel = `컨베이어 C${conveyorItem.index}`;
+    
     // 정지 요청: 투입중=0, 투입완료=0 후 정지요청=1
     if (conveyorItem.input_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0, desc: `${cLabel} 투입중 초기화` }),
       });
     }
     if (conveyorItem.input_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0, desc: `${cLabel} 투입완료 초기화` }),
       });
     }
     steps.push({
       type: "PLC_WRITE",
-      payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1 }),
+      payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 1, desc: `${cLabel} 정지요청 ON` }),
     });
     
     steps.push({
       type: "PLC_READ",
-      payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1 }),
+      payload: JSON.stringify({ PLC_ID: conveyorItem.stop_id, EXPECTED: 1, desc: `${cLabel} 정지중 대기` }),
     });
     steps.push({
       type: "PLC_READ",
-      payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1 }),
+      payload: JSON.stringify({ PLC_ID: conveyorItem.input_ready_id, EXPECTED: 1, desc: `${cLabel} 투입가능 대기` }),
     });
     
     // 투입중: 투입완료=0 후 투입중=1
     if (conveyorItem.input_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 0, desc: `${cLabel} 투입완료 초기화` }),
       });
     }
     steps.push({
       type: "PLC_WRITE",
-      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1 }),
+      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 1, desc: `${cLabel} 투입중 ON` }),
     });
     
     const visionKey = `${conveyorItem.index ?? ""}|${conveyorManiPos ?? ""}`;
@@ -1217,18 +1224,18 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     if (conveyorItem.input_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.input_in_progress_id, PLC_DATA: 0, desc: `${cLabel} 투입중 OFF` }),
       });
     }
     if (conveyorItem.stop_request_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: conveyorItem.stop_request_id, PLC_DATA: 0, desc: `${cLabel} 정지요청 OFF` }),
       });
     }
     steps.push({
       type: "PLC_WRITE",
-      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1 }),
+      payload: JSON.stringify({ PLC_BIT: conveyorItem.input_done_id, PLC_DATA: 1, desc: `${cLabel} 투입완료 ON` }),
     });
   }
 
@@ -1374,6 +1381,8 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   let lastGrinderStation = null;
   for (const pair of pairs) {
     const { output, amrSlotNo } = pair;
+    const gLabel = `연마기 G${output.grinderIndex}-${output.position}`;
+    
     if (output.station !== lastGrinderStation) {
       steps.push({
         type: "NAV",
@@ -1385,13 +1394,13 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     if (output.output_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: output.output_in_progress_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: output.output_in_progress_id, PLC_DATA: 1, desc: `${gLabel} 배출중 ON` }),
       });
     }
     if (output.safe_pos_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: output.safe_pos_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: output.safe_pos_id, PLC_DATA: 0, desc: `${gLabel} 안전위치 해제` }),
       });
     }
 
@@ -1410,23 +1419,23 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     if (output.output_in_progress_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: output.output_in_progress_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: output.output_in_progress_id, PLC_DATA: 0, desc: `${gLabel} 배출중 OFF` }),
       });
     }
     if (output.safe_pos_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: output.safe_pos_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: output.safe_pos_id, PLC_DATA: 1, desc: `${gLabel} 안전위치 ON` }),
       });
     }
     if (output.output_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: output.output_done_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: output.output_done_id, PLC_DATA: 1, desc: `${gLabel} 배출 완료 ON` }),
       });
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: output.output_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: output.output_done_id, PLC_DATA: 0, desc: `${gLabel} 배출 완료 초기화` }),
       });
     }
   }
@@ -1448,6 +1457,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   let lastOutVisionAmrPos = null;
   for (const pair of sortedForUnload) {
     const { outRow, amrSlotNo, output } = pair;
+    const outLabel = `아웃스토커 ${outRow.side}-R${outRow.row}`;
 
     if (outRow.amr_pos !== lastOutAmrPos) {
       steps.push({
@@ -1460,7 +1470,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     if (outRow.working_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: outRow.working_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: outRow.working_id, PLC_DATA: 1, desc: `${outLabel} 작업중 ON` }),
       });
     }
 
@@ -1481,17 +1491,17 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     if (outRow.working_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: outRow.working_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: outRow.working_id, PLC_DATA: 0, desc: `${outLabel} 작업중 OFF` }),
       });
     }
     if (outRow.load_done_id) {
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: outRow.load_done_id, PLC_DATA: 1 }),
+        payload: JSON.stringify({ PLC_BIT: outRow.load_done_id, PLC_DATA: 1, desc: `${outLabel} 적재완료 ON` }),
       });
       steps.push({
         type: "PLC_WRITE",
-        payload: JSON.stringify({ PLC_BIT: outRow.load_done_id, PLC_DATA: 0 }),
+        payload: JSON.stringify({ PLC_BIT: outRow.load_done_id, PLC_DATA: 0, desc: `${outLabel} 적재완료 초기화` }),
       });
     }
   }

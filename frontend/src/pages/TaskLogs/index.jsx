@@ -270,11 +270,11 @@ const StepList = ({ steps }) => {
     }
     if (type === "PLC_WRITE") {
       const p = payload || {};
-      return `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
+      return p.desc || `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
     }
-    if (type === "PLC_WAIT") {
+    if (type === "PLC_WAIT" || type === "PLC_READ") {
       const p = payload || {};
-      return `${p.PLC_BIT || "-"} == ${p.PLC_DATA ?? "-"}`;
+      return p.desc || `${p.PLC_BIT || p.PLC_ID || "-"} == ${p.PLC_DATA ?? p.EXPECTED ?? "-"}`;
     }
     return JSON.stringify(payload);
   };
@@ -371,8 +371,14 @@ const StepLogItem = ({ log, steps }) => {
             if (step.type === "MANI_WORK") {
               return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
             }
-            if (step.type === "PLC_WRITE") return `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
-            if (step.type === "PLC_WAIT") return `${p.PLC_BIT || "-"} == ${p.PLC_DATA ?? "-"}`;
+            if (step.type === "PLC_WRITE") {
+              return p.desc ? `${p.desc} (${p.PLC_BIT}=${p.PLC_DATA})` : `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
+            }
+            if (step.type === "PLC_WAIT" || step.type === "PLC_READ") {
+              const addr = p.PLC_BIT || p.PLC_ID || "-";
+              const val = p.PLC_DATA ?? p.EXPECTED ?? "-";
+              return p.desc ? `${p.desc} (${addr}==${val})` : `${addr} == ${val}`;
+            }
             return JSON.stringify(p);
           })()}
         </div>

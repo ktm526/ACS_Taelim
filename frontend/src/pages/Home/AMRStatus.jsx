@@ -145,9 +145,9 @@ const StepItem = React.memo(({
         case 'MANI_WORK':
           return `매니 ${p.CMD_FROM}→${p.CMD_TO}`;
         case 'PLC_WRITE':
-          return `PLC ${p.PLC_BIT}=${p.PLC_DATA}`;
+          return p.desc || `PLC ${p.PLC_BIT}=${p.PLC_DATA}`;
         case 'PLC_READ':
-          return `PLC ${p.PLC_ID}==${p.EXPECTED}`;
+          return p.desc || `PLC ${p.PLC_ID}==${p.EXPECTED}`;
         case 'JACK_UP':
           return "잭 올리기";
         case 'JACK_DOWN':
