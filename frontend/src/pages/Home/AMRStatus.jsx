@@ -1528,7 +1528,7 @@ export default function AMRStatus() {
                                   color={armState.TASK_STATUS === '0' ? 'default' : 'processing'} 
                                   style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
                                 >
-                                  {armState.TASK_STATUS === '0' ? 'IDLE' : 'RUN'}
+                                  {armState.TASK_STATUS}
                                 </Tag>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1537,7 +1537,7 @@ export default function AMRStatus() {
                                   color={armState.ROBOT_STATUS === '0' ? 'success' : 'warning'} 
                                   style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
                                 >
-                                  {armState.ROBOT_STATUS === '0' ? 'OK' : armState.ROBOT_STATUS}
+                                  {armState.ROBOT_STATUS}
                                 </Tag>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
