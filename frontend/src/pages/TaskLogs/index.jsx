@@ -117,7 +117,7 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
         <div>
           <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>인스토커</div>
           <PlcTable
-            headers={["", "작업가능", "작업중", "완료"]}
+            headers={["", "작업 가능", "작업중", "완료"]}
             rows={Object.entries(plcStatus.instocker || {}).map(([side, d]) => (
               <tr key={side}>
                 <Td bold>{side}</Td>
@@ -131,7 +131,7 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
         <div>
           <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>인스토커 슬롯</div>
           <PlcTable
-            headers={["슬롯", "AMR", "MANI", "제품"]}
+            headers={["슬롯", "AMR Pos", "Mani Pos", "제품타입"]}
             rows={Object.entries(plcStatus.instocker_slots || {}).flatMap(([side, slots]) =>
               (slots || []).map((s, i) => (
                 <tr key={`${side}-${i}`}>
@@ -147,7 +147,7 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
         <div>
           <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>연마기</div>
           <PlcTable
-            headers={["", "AMR", "BP", "L투입", "L중", "L완료", "R투입", "R중", "R완료"]}
+            headers={["", "AMR Pos", "바이패스", "L-투입 가능", "L-투입중", "L-투입완료", "R-투입 가능", "R-투입중", "R-투입완료"]}
             rows={(plcStatus.grinders || []).map((g) => (
               <tr key={g.index}>
                 <Td bold>G{g.index}</Td>
@@ -171,9 +171,9 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>연마기 배출</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>연마기</div>
           <PlcTable
-            headers={["", "AMR", "BP", "L배출", "L중", "L완료", "L제품", "R배출", "R중", "R완료", "R제품"]}
+            headers={["", "AMR Pos", "바이패스", "L-배출 가능", "L-배출중", "L-배출 완료", "L-제품타입", "R-배출 가능", "R-배출중", "R-배출 완료", "R-제품타입"]}
             rows={(plcStatus.grinders || []).map((g) => (
               <tr key={g.index}>
                 <Td bold>G{g.index}</Td>
@@ -192,9 +192,9 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
           />
         </div>
         <div>
-          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>아웃스토커</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>아웃스토커 (적재 가능)</div>
           <PlcTable
-            headers={["", "AMR", "BP", "R1", "R2", "R3", "R4", "R5", "R6"]}
+            headers={["", "AMR Pos", "바이패스", "R1", "R2", "R3", "R4", "R5", "R6"]}
             rows={Object.entries(plcStatus.outstocker || {}).map(([side, d]) => (
               <tr key={side}>
                 <Td bold>{side}</Td>
@@ -215,9 +215,9 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>아웃스토커 지그</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>아웃스토커 (공지그 상태 / 모델 번호)</div>
           <PlcTable
-            headers={["", "AMR", "BP", "R1지그", "R1모델", "R2지그", "R2모델", "R3지그", "R3모델", "R4지그", "R4모델", "R5지그", "R5모델", "R6지그", "R6모델"]}
+            headers={["", "AMR Pos", "바이패스", "R1 공지그", "R1 모델", "R2 공지그", "R2 모델", "R3 공지그", "R3 모델", "R4 공지그", "R4 모델", "R5 공지그", "R5 모델", "R6 공지그", "R6 모델"]}
             rows={Object.entries(plcStatus.outstocker || {}).map(([side, d]) => (
               <tr key={side}>
                 <Td bold>{side}</Td>
@@ -234,7 +234,7 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
         <div>
           <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>컨베이어</div>
           <PlcTable
-            headers={["", "AMR", "제품", "호출", "수량", "투입1", "투입4", "작업중", "완료"]}
+            headers={["", "AMR Pos", "제품번호", "호출신호", "호출수량", "투입수량1", "투입수량4", "투입중", "투입완료"]}
             rows={(plcStatus.conveyors || []).map((c) => (
               <tr key={c.index}>
                 <Td bold>C{c.index}</Td>
@@ -268,8 +268,14 @@ const StepList = ({ steps }) => {
       const p = payload || {};
       return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
     }
-    if (type === "PLC_WRITE") return `${payload?.address} = ${payload?.value}`;
-    if (type === "PLC_WAIT") return `${payload?.address} == ${payload?.expected}`;
+    if (type === "PLC_WRITE") {
+      const p = payload || {};
+      return `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
+    }
+    if (type === "PLC_WAIT") {
+      const p = payload || {};
+      return `${p.PLC_BIT || "-"} == ${p.PLC_DATA ?? "-"}`;
+    }
     return JSON.stringify(payload);
   };
 
@@ -427,8 +433,8 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
                       </div>
                     );
                   }
-                  if (step?.type === "PLC_WRITE") return `주소: ${p.address}, 값: ${p.value}`;
-                  if (step?.type === "PLC_WAIT") return `주소: ${p.address}, 대기값: ${p.expected}`;
+                  if (step?.type === "PLC_WRITE") return `주소: ${p.PLC_BIT || "-"}, 값: ${p.PLC_DATA ?? "-"}`;
+                  if (step?.type === "PLC_WAIT") return `주소: ${p.PLC_BIT || "-"}, 대기값: ${p.PLC_DATA ?? "-"}`;
                   return JSON.stringify(p, null, 2);
                 })()}
               </div>
