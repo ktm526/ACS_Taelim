@@ -671,6 +671,7 @@ async function createTaskForSides(sides, config, activeTasks) {
       steps.push({ type: "NAV", payload: JSON.stringify({ dest: currentStation }) });
     }
     const visionCheck = currentStation !== lastPickupStation ? 1 : 0;
+    const insLabel = `인스토커 ${assignment.instocker_side}`;
     steps.push({
       type: "MANI_WORK",
       payload: JSON.stringify({
@@ -680,6 +681,8 @@ async function createTaskForSides(sides, config, activeTasks) {
         VISION_CHECK: visionCheck,
         PRODUCT_NO: assignment.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
+        desc_from: insLabel,
+        desc_to: `AMR #${amrSlotNo}`,
       }),
     });
     if (currentStation) lastPickupStation = currentStation;
@@ -736,6 +739,8 @@ async function createTaskForSides(sides, config, activeTasks) {
         VISION_CHECK: 0,
         PRODUCT_NO: target.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
+        desc_from: `AMR #${amrSlotNo}`,
+        desc_to: gLabel,
       }),
     });
     
@@ -1103,8 +1108,10 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
         CMD_FROM: Number(info.rowInfo.mani_pos),
         CMD_TO: amrSlotNo,
         VISION_CHECK: visionCheck,
-        PRODUCT_NO: info.productNo, // 제품 번호 (슬롯 적재용)
-        AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (업데이트 대상)
+        PRODUCT_NO: info.productNo,
+        AMR_SLOT_NO: amrSlotNo,
+        desc_from: outLabel,
+        desc_to: `AMR #${amrSlotNo}`,
       }),
     });
     
@@ -1222,8 +1229,10 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
         CMD_FROM: amrSlotNo,
         CMD_TO: Number(conveyorManiPos),
         VISION_CHECK: visionCheck,
-        PRODUCT_NO: info.productNo, // 제품 번호 (로그용)
-        AMR_SLOT_NO: amrSlotNo, // AMR 슬롯 번호 (비우기 대상)
+        PRODUCT_NO: info.productNo,
+        AMR_SLOT_NO: amrSlotNo,
+        desc_from: `AMR #${amrSlotNo}`,
+        desc_to: cLabel,
       }),
     });
     if (visionKey) lastConveyorVisionKey = visionKey;
@@ -1421,6 +1430,8 @@ async function createTaskForGrinderOutput(config, activeTasks) {
         VISION_CHECK: 0,
         PRODUCT_NO: output.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
+        desc_from: gLabel,
+        desc_to: `AMR #${amrSlotNo}`,
       }),
     });
 
@@ -1493,6 +1504,8 @@ async function createTaskForGrinderOutput(config, activeTasks) {
         VISION_CHECK: visionCheck,
         PRODUCT_NO: output.product_type_value,
         AMR_SLOT_NO: amrSlotNo,
+        desc_from: `AMR #${amrSlotNo}`,
+        desc_to: outLabel,
       }),
     });
 

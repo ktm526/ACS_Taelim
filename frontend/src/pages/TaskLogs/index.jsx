@@ -266,7 +266,9 @@ const StepList = ({ steps }) => {
     if (type === "NAV") return payload?.dest || "-";
     if (type === "MANI_WORK") {
       const p = payload || {};
-      return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
+      return p.desc_from && p.desc_to
+        ? `${p.desc_from} → ${p.desc_to}${p.VISION_CHECK === 1 ? " V✓" : ""}`
+        : `FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
     }
     if (type === "PLC_WRITE") {
       const p = payload || {};
@@ -369,7 +371,8 @@ const StepLogItem = ({ log, steps }) => {
             const p = step.payload || {};
             if (step.type === "NAV") return `목적지: ${p.dest || "-"}`;
             if (step.type === "MANI_WORK") {
-              return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
+              const loc = p.desc_from && p.desc_to ? `${p.desc_from} → ${p.desc_to}` : `FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"}`;
+              return `${loc} (P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"})`;
             }
             if (step.type === "PLC_WRITE") {
               return p.desc || `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;

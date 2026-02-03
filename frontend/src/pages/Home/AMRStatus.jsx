@@ -143,7 +143,9 @@ const StepItem = React.memo(({
         case 'NAV_PRE':
           return `→ ${p.dest || '?'}`;
         case 'MANI_WORK':
-          return `매니 ${p.CMD_FROM}→${p.CMD_TO}`;
+          return p.desc_from && p.desc_to 
+            ? `${p.desc_from} → ${p.desc_to}` 
+            : `매니 ${p.CMD_FROM}→${p.CMD_TO}`;
         case 'PLC_WRITE':
           return p.desc || `PLC ${p.PLC_BIT}=${p.PLC_DATA}`;
         case 'PLC_READ':
