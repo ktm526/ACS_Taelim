@@ -317,8 +317,72 @@ const StepList = ({ steps }) => {
   );
 };
 
+// 스텝 로그 아이템 (시작 카드 하위)
+const StepLogItem = ({ log, steps }) => {
+  const [expanded, setExpanded] = useState(false);
+  
+  const evtConfig = {
+    STEP_STARTED: { color: "#6366f1", label: "시작" },
+    STEP_DONE: { color: "#22c55e", label: "완료" },
+    STEP_FAILED: { color: "#f87171", label: "실패" },
+  };
+  
+  const cfg = evtConfig[log.event] || { color: "#6b7280", label: log.event };
+  const step = log.step_seq != null && steps?.[log.step_seq];
+  
+  return (
+    <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 8, marginBottom: 2 }}>
+      <div
+        onClick={() => step && setExpanded(!expanded)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "4px 0",
+          cursor: step ? "pointer" : "default",
+          gap: 6,
+          fontSize: 10,
+        }}
+      >
+        {step && (
+          <span style={{ color: "#9ca3af", fontSize: 8 }}>
+            {expanded ? <DownOutlined /> : <RightOutlined />}
+          </span>
+        )}
+        <span style={{ color: "#9ca3af", fontFamily: "monospace", minWidth: 45 }}>
+          {dayjs(log.created_at).format("HH:mm:ss")}
+        </span>
+        <span style={{
+          padding: "1px 4px",
+          borderRadius: 2,
+          background: `${cfg.color}15`,
+          color: cfg.color,
+          fontWeight: 500,
+          fontSize: 9,
+        }}>
+          #{log.step_seq} {cfg.label}
+        </span>
+        <span style={{ color: "#4b5563", flex: 1 }}>{log.message}</span>
+      </div>
+      {expanded && step && (
+        <div style={{ padding: "4px 0 4px 20px", fontSize: 10, color: "#374151", fontFamily: "monospace" }}>
+          {(() => {
+            const p = step.payload || {};
+            if (step.type === "NAV") return `목적지: ${p.dest || "-"}`;
+            if (step.type === "MANI_WORK") {
+              return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
+            }
+            if (step.type === "PLC_WRITE") return `${p.PLC_BIT || "-"} = ${p.PLC_DATA ?? "-"}`;
+            if (step.type === "PLC_WAIT") return `${p.PLC_BIT || "-"} == ${p.PLC_DATA ?? "-"}`;
+            return JSON.stringify(p);
+          })()}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // 로그 아이템 (드롭다운)
-const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
+const LogItem = ({ log, scenario, plcStatus, steps, summary, stepLogs }) => {
   const [expanded, setExpanded] = useState(false);
 
   const evtConfig = {
@@ -327,13 +391,10 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
     TASK_DONE: { color: "#10b981", label: "완료" },
     TASK_FAILED: { color: "#ef4444", label: "실패" },
     TASK_CANCELED: { color: "#f59e0b", label: "취소" },
-    STEP_STARTED: { color: "#6366f1", label: "스텝시작" },
-    STEP_DONE: { color: "#22c55e", label: "스텝완료" },
-    STEP_FAILED: { color: "#f87171", label: "스텝실패" },
   };
 
   const cfg = evtConfig[log.event] || { color: "#6b7280", label: log.event };
-  const hasDetail = log.event === "TASK_CREATED" || log.event.startsWith("STEP_");
+  const hasDetail = log.event === "TASK_CREATED" || (log.event === "TASK_STARTED" && stepLogs?.length > 0);
 
   return (
     <div style={{
@@ -379,10 +440,10 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
         }}>
           {cfg.label}
         </span>
-        {log.step_seq != null && (
-          <span style={{ color: "#6b7280", fontSize: 10 }}>#{log.step_seq}</span>
-        )}
         <span style={{ color: "#374151", fontSize: 11, flex: 1 }}>{log.message}</span>
+        {log.event === "TASK_STARTED" && stepLogs?.length > 0 && (
+          <span style={{ color: "#9ca3af", fontSize: 10 }}>{stepLogs.length}스텝</span>
+        )}
       </div>
 
       {/* 상세 (드롭다운) */}
@@ -413,31 +474,11 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
             </div>
           )}
 
-          {log.event.startsWith("STEP_") && log.step_seq != null && steps?.[log.step_seq] && (
-            <div>
-              <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>스텝 #{log.step_seq} 상세</div>
-              <div style={{ fontSize: 10, color: "#374151", fontFamily: "monospace" }}>
-                {(() => {
-                  const step = steps[log.step_seq];
-                  const p = step?.payload || {};
-                  if (step?.type === "NAV") return `목적지: ${p.dest || "-"}`;
-                  if (step?.type === "MANI_WORK") {
-                    return (
-                      <div style={{ lineHeight: 1.6 }}>
-                        <div>CMD_ID: {p.CMD_ID ?? "-"}</div>
-                        <div>CMD_FROM: {p.CMD_FROM ?? "-"} (AMR 슬롯)</div>
-                        <div>CMD_TO: {p.CMD_TO ?? "-"} (마니퓰레이터 위치)</div>
-                        <div>PRODUCT_NO: {p.PRODUCT_NO ?? "-"}</div>
-                        <div>AMR_SLOT_NO: {p.AMR_SLOT_NO ?? "-"}</div>
-                        <div>VISION_CHECK: {p.VISION_CHECK ?? "-"}</div>
-                      </div>
-                    );
-                  }
-                  if (step?.type === "PLC_WRITE") return `주소: ${p.PLC_BIT || "-"}, 값: ${p.PLC_DATA ?? "-"}`;
-                  if (step?.type === "PLC_WAIT") return `주소: ${p.PLC_BIT || "-"}, 대기값: ${p.PLC_DATA ?? "-"}`;
-                  return JSON.stringify(p, null, 2);
-                })()}
-              </div>
+          {log.event === "TASK_STARTED" && stepLogs?.length > 0 && (
+            <div style={{ maxHeight: 300, overflowY: "auto" }}>
+              {stepLogs.map((slog) => (
+                <StepLogItem key={slog.id} log={slog} steps={steps} />
+              ))}
             </div>
           )}
         </div>
@@ -450,6 +491,10 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
 const TaskGroup = ({ task, expanded, onToggle }) => {
   const StatusIcon = STATUS_CONFIG[task.status]?.icon || ClockCircleFilled;
   const statusColor = STATUS_CONFIG[task.status]?.color || "#6b7280";
+
+  // 스텝 로그를 분리 (TASK_STARTED 하위로 이동)
+  const mainLogs = (task.logs || []).filter(l => !l.event.startsWith("STEP_"));
+  const stepLogs = (task.logs || []).filter(l => l.event.startsWith("STEP_"));
 
   return (
     <div style={{
@@ -490,13 +535,13 @@ const TaskGroup = ({ task, expanded, onToggle }) => {
         <span style={{ fontSize: 10, color: "#9ca3af" }}>{task.createdAt?.format("MM/DD HH:mm:ss")}</span>
         {task.duration != null && <span style={{ fontSize: 10, color: "#6b7280" }}>{task.duration}s</span>}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 10, color: "#9ca3af" }}>{task.logs?.length || 0}건</span>
+        <span style={{ fontSize: 10, color: "#9ca3af" }}>{mainLogs.length}건</span>
       </div>
 
       {/* 로그 목록 */}
       {expanded && (
         <div style={{ padding: "8px 12px", background: "#f9fafb" }}>
-          {(task.logs || []).map((log) => (
+          {mainLogs.map((log) => (
             <LogItem
               key={log.id}
               log={log}
@@ -504,6 +549,7 @@ const TaskGroup = ({ task, expanded, onToggle }) => {
               plcStatus={task.plcStatus}
               steps={task.steps}
               summary={task.summary}
+              stepLogs={log.event === "TASK_STARTED" ? stepLogs : undefined}
             />
           ))}
         </div>
