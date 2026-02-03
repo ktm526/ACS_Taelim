@@ -1608,10 +1608,18 @@ export default function AMRStatus() {
                               ))}
                               
                               {/* 토크 행 */}
-                              <div style={{ padding: '6px 10px', color: '#8c8c8c' }}>토크</div>
+                              <div style={{ padding: '6px 10px', borderBottom: '1px solid #e8e8e8', color: '#8c8c8c' }}>토크</div>
+                              {[1,2,3,4,5,6].map(i => (
+                                <div key={i} style={{ padding: '6px 8px', borderBottom: '1px solid #e8e8e8', borderLeft: '1px solid #e8e8e8', textAlign: 'center', fontFamily: 'monospace', color: '#262626' }}>
+                                  {armState[`JOINT_TORQUE_${i}`]}
+                                </div>
+                              ))}
+                              
+                              {/* 전류 행 */}
+                              <div style={{ padding: '6px 10px', color: '#8c8c8c' }}>전류</div>
                               {[1,2,3,4,5,6].map(i => (
                                 <div key={i} style={{ padding: '6px 8px', borderLeft: '1px solid #e8e8e8', textAlign: 'center', fontFamily: 'monospace', color: '#262626' }}>
-                                  {armState[`JOINT_TORQUE_${i}`]}
+                                  {armState[`JOINT_MOTOR_CURRENT_${i}`]}
                                 </div>
                               ))}
                             </div>
