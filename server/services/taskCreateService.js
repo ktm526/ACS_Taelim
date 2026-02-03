@@ -1015,12 +1015,20 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     return;
   }
   
-  // 처리 가능한 요청만으로 진행
-  const totalQty = validRequests.reduce((sum, r) => sum + r.qty, 0);
-  //console.log(`[TaskCreate] 컨베이어 통합: 처리 가능 ${validRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
+  // 처리 가능한 요청만으로 진행 (로봇 최대 적재 6개 제한)
+  const maxCarry = Math.min(slotNos.length, 6);
+  const prioritizedRequests = [...validRequests].sort((a, b) => (a.item.index ?? 0) - (b.item.index ?? 0));
+  const limitedRequests = [];
+  let totalQty = 0;
+  for (const req of prioritizedRequests) {
+    if (totalQty + req.qty > maxCarry) continue;
+    limitedRequests.push(req);
+    totalQty += req.qty;
+  }
+  //console.log(`[TaskCreate] 컨베이어 통합: 처리 가능 ${limitedRequests.map(r => `C${r.item.index}(${r.qty}개)`).join(' + ')} = 총 ${totalQty}개`);
   
-  if (slotNos.length < totalQty) {
-    //console.warn(`[TaskCreate] 컨베이어 통합: AMR 슬롯 부족 (필요: ${totalQty}, 보유: ${slotNos.length})`);
+  if (!limitedRequests.length) {
+    //console.warn(`[TaskCreate] 컨베이어 통합: 로봇 적재 한계로 처리 가능한 요청 없음`);
     return;
   }
 
@@ -1036,7 +1044,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
   let slotIndex = 0;
   let rowIndex = 0;
 
-  for (const req of validRequests) {
+  for (const req of limitedRequests) {
     for (let i = 0; i < req.qty; i++) {
       const amrSlotNo = slotNos[slotIndex];
       const rowInfo = rows[rowIndex];
