@@ -593,7 +593,6 @@ async function createTaskForSides(sides, config, activeTasks) {
     .filter((n) => n != null)
     .sort((a, b) => a - b);
   const loadOrder = buildPreferredAmrSlotOrder(slotNos);
-  const loadOrder = buildPreferredAmrSlotOrder(slotNos);
   
   if (slotNos.length < slotAssignments.length) {
     console.log(`[TaskCreate] 시나리오1(${sideLabel}) 조건: AMR 슬롯 부족 (필요 ${slotAssignments.length} / 보유 ${slotNos.length})`);
@@ -1006,6 +1005,7 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
     .map((s) => (typeof s === "object" ? s.slot_no : s))
     .filter((n) => n != null)
     .sort((a, b) => a - b);
+  const loadOrder = buildPreferredAmrSlotOrder(slotNos);
 
   // ═══════════════════════════════════════════════════════════════
   // 각 컨베이어별로 공지그 확인 → 충족 가능한 것만 필터링
