@@ -20,8 +20,6 @@ import {
   MinusCircleFilled,
   DownOutlined,
   RightOutlined,
-  CaretDownOutlined,
-  CaretRightOutlined,
 } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
@@ -48,16 +46,16 @@ const STATUS_CONFIG = {
 const StatCard = ({ label, value, color, icon: Icon }) => (
   <div style={{
     background: "#fff",
-    borderRadius: 10,
-    padding: "14px 18px",
-    minWidth: 100,
-    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+    borderRadius: 8,
+    padding: "12px 16px",
+    minWidth: 90,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
   }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-      {Icon && <Icon style={{ fontSize: 12, color }} />}
-      <span style={{ fontSize: 11, color: "#94a3b8" }}>{label}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+      {Icon && <Icon style={{ fontSize: 11, color }} />}
+      <span style={{ fontSize: 10, color: "#9ca3af" }}>{label}</span>
     </div>
-    <span style={{ fontSize: 20, fontWeight: 600, color }}>{value}</span>
+    <span style={{ fontSize: 18, fontWeight: 600, color }}>{value}</span>
   </div>
 );
 
@@ -74,7 +72,6 @@ const PlcVal = ({ data }) => {
         color: isOn ? "#10b981" : isWord ? "#3b82f6" : "#9ca3af",
         fontWeight: isOn || isWord ? 500 : 400,
         cursor: addr ? "help" : "default",
-        fontSize: 11,
       }}
     >
       {isWord ? value : isOn ? "1" : "0"}
@@ -82,14 +79,14 @@ const PlcVal = ({ data }) => {
   );
 };
 
-// 컴팩트 PLC 테이블
+// PLC 테이블
 const PlcTable = ({ headers, rows }) => (
   <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
     <thead>
       <tr>
         {headers.map((h, i) => (
           <th key={i} style={{
-            padding: "4px 6px",
+            padding: "3px 5px",
             background: "#f8fafc",
             borderBottom: "1px solid #e5e7eb",
             textAlign: "left",
@@ -104,67 +101,64 @@ const PlcTable = ({ headers, rows }) => (
   </table>
 );
 
-const TdCell = ({ children, bold }) => (
-  <td style={{
-    padding: "4px 6px",
-    borderBottom: "1px solid #f3f4f6",
-    color: "#374151",
-    fontWeight: bold ? 500 : 400,
-  }}>{children}</td>
+const Td = ({ children, bold }) => (
+  <td style={{ padding: "3px 5px", borderBottom: "1px solid #f3f4f6", color: "#374151", fontWeight: bold ? 500 : 400 }}>
+    {children}
+  </td>
 );
 
 // 시나리오별 PLC 상태
 const PlcStatusSection = ({ plcStatus, scenario }) => {
-  if (!plcStatus) return <span style={{ color: "#9ca3af", fontSize: 11 }}>PLC 정보 없음</span>;
+  if (!plcStatus) return <span style={{ color: "#9ca3af", fontSize: 10 }}>PLC 정보 없음</span>;
 
   if (scenario === 1) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>인스토커</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>인스토커</div>
           <PlcTable
             headers={["", "작업가능", "작업중", "완료"]}
             rows={Object.entries(plcStatus.instocker || {}).map(([side, d]) => (
               <tr key={side}>
-                <TdCell bold>{side}</TdCell>
-                <TdCell><PlcVal data={d.work_available} /></TdCell>
-                <TdCell><PlcVal data={d.working} /></TdCell>
-                <TdCell><PlcVal data={d.work_done} /></TdCell>
+                <Td bold>{side}</Td>
+                <Td><PlcVal data={d.work_available} /></Td>
+                <Td><PlcVal data={d.working} /></Td>
+                <Td><PlcVal data={d.work_done} /></Td>
               </tr>
             ))}
           />
         </div>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>인스토커 슬롯</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>인스토커 슬롯</div>
           <PlcTable
             headers={["슬롯", "AMR", "MANI", "제품"]}
             rows={Object.entries(plcStatus.instocker_slots || {}).flatMap(([side, slots]) =>
               (slots || []).map((s, i) => (
                 <tr key={`${side}-${i}`}>
-                  <TdCell bold>{side}-{s.key || i + 1}</TdCell>
-                  <TdCell>{s.amr_pos || "-"}</TdCell>
-                  <TdCell>{s.mani_pos || "-"}</TdCell>
-                  <TdCell><PlcVal data={s.product_type} /></TdCell>
+                  <Td bold>{side}-{s.key || i + 1}</Td>
+                  <Td>{s.amr_pos || "-"}</Td>
+                  <Td>{s.mani_pos || "-"}</Td>
+                  <Td><PlcVal data={s.product_type} /></Td>
                 </tr>
               ))
             )}
           />
         </div>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>연마기</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>연마기</div>
           <PlcTable
             headers={["", "AMR", "BP", "L투입", "L중", "L완료", "R투입", "R중", "R완료"]}
             rows={(plcStatus.grinders || []).map((g) => (
               <tr key={g.index}>
-                <TdCell bold>G{g.index}</TdCell>
-                <TdCell>{g.amr_pos || "-"}</TdCell>
-                <TdCell><PlcVal data={g.bypass} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.input_ready} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.input_working} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.input_done} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.input_ready} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.input_working} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.input_done} /></TdCell>
+                <Td bold>G{g.index}</Td>
+                <Td>{g.amr_pos || "-"}</Td>
+                <Td><PlcVal data={g.bypass} /></Td>
+                <Td><PlcVal data={g.positions?.L?.input_ready} /></Td>
+                <Td><PlcVal data={g.positions?.L?.input_working} /></Td>
+                <Td><PlcVal data={g.positions?.L?.input_done} /></Td>
+                <Td><PlcVal data={g.positions?.R?.input_ready} /></Td>
+                <Td><PlcVal data={g.positions?.R?.input_working} /></Td>
+                <Td><PlcVal data={g.positions?.R?.input_done} /></Td>
               </tr>
             ))}
           />
@@ -175,39 +169,39 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
 
   if (scenario === 2) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>연마기 배출</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>연마기 배출</div>
           <PlcTable
             headers={["", "AMR", "BP", "L배출", "L중", "L완료", "L제품", "R배출", "R중", "R완료", "R제품"]}
             rows={(plcStatus.grinders || []).map((g) => (
               <tr key={g.index}>
-                <TdCell bold>G{g.index}</TdCell>
-                <TdCell>{g.amr_pos || "-"}</TdCell>
-                <TdCell><PlcVal data={g.bypass} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.output_ready} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.output_working} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.output_done} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.L?.product_type} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.output_ready} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.output_working} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.output_done} /></TdCell>
-                <TdCell><PlcVal data={g.positions?.R?.product_type} /></TdCell>
+                <Td bold>G{g.index}</Td>
+                <Td>{g.amr_pos || "-"}</Td>
+                <Td><PlcVal data={g.bypass} /></Td>
+                <Td><PlcVal data={g.positions?.L?.output_ready} /></Td>
+                <Td><PlcVal data={g.positions?.L?.output_working} /></Td>
+                <Td><PlcVal data={g.positions?.L?.output_done} /></Td>
+                <Td><PlcVal data={g.positions?.L?.product_type} /></Td>
+                <Td><PlcVal data={g.positions?.R?.output_ready} /></Td>
+                <Td><PlcVal data={g.positions?.R?.output_working} /></Td>
+                <Td><PlcVal data={g.positions?.R?.output_done} /></Td>
+                <Td><PlcVal data={g.positions?.R?.product_type} /></Td>
               </tr>
             ))}
           />
         </div>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>아웃스토커</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>아웃스토커</div>
           <PlcTable
             headers={["", "AMR", "BP", "R1", "R2", "R3", "R4", "R5", "R6"]}
             rows={Object.entries(plcStatus.outstocker || {}).map(([side, d]) => (
               <tr key={side}>
-                <TdCell bold>{side}</TdCell>
-                <TdCell>{d.amr_pos || "-"}</TdCell>
-                <TdCell><PlcVal data={d.bypass} /></TdCell>
+                <Td bold>{side}</Td>
+                <Td>{d.amr_pos || "-"}</Td>
+                <Td><PlcVal data={d.bypass} /></Td>
                 {[1, 2, 3, 4, 5, 6].map((r) => (
-                  <TdCell key={r}><PlcVal data={d.rows?.[r]?.load_ready} /></TdCell>
+                  <Td key={r}><PlcVal data={d.rows?.[r]?.load_ready} /></Td>
                 ))}
               </tr>
             ))}
@@ -219,39 +213,39 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
 
   if (scenario === 3) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>아웃스토커 지그</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>아웃스토커 지그</div>
           <PlcTable
             headers={["", "AMR", "BP", "R1지그", "R1모델", "R2지그", "R2모델", "R3지그", "R3모델", "R4지그", "R4모델", "R5지그", "R5모델", "R6지그", "R6모델"]}
             rows={Object.entries(plcStatus.outstocker || {}).map(([side, d]) => (
               <tr key={side}>
-                <TdCell bold>{side}</TdCell>
-                <TdCell>{d.amr_pos || "-"}</TdCell>
-                <TdCell><PlcVal data={d.bypass} /></TdCell>
+                <Td bold>{side}</Td>
+                <Td>{d.amr_pos || "-"}</Td>
+                <Td><PlcVal data={d.bypass} /></Td>
                 {[1, 2, 3, 4, 5, 6].flatMap((r) => [
-                  <TdCell key={`${r}j`}><PlcVal data={d.rows?.[r]?.jig_state} /></TdCell>,
-                  <TdCell key={`${r}m`}><PlcVal data={d.rows?.[r]?.model_no} /></TdCell>,
+                  <Td key={`${r}j`}><PlcVal data={d.rows?.[r]?.jig_state} /></Td>,
+                  <Td key={`${r}m`}><PlcVal data={d.rows?.[r]?.model_no} /></Td>,
                 ])}
               </tr>
             ))}
           />
         </div>
         <div>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>컨베이어</div>
+          <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>컨베이어</div>
           <PlcTable
             headers={["", "AMR", "제품", "호출", "수량", "투입1", "투입4", "작업중", "완료"]}
             rows={(plcStatus.conveyors || []).map((c) => (
               <tr key={c.index}>
-                <TdCell bold>C{c.index}</TdCell>
-                <TdCell>{c.amr_pos || "-"}</TdCell>
-                <TdCell>{c.product_no ?? "-"}</TdCell>
-                <TdCell><PlcVal data={c.call_signal} /></TdCell>
-                <TdCell><PlcVal data={c.call_qty} /></TdCell>
-                <TdCell><PlcVal data={c.input_qty_1} /></TdCell>
-                <TdCell><PlcVal data={c.input_qty_4} /></TdCell>
-                <TdCell><PlcVal data={c.working} /></TdCell>
-                <TdCell><PlcVal data={c.work_done} /></TdCell>
+                <Td bold>C{c.index}</Td>
+                <Td>{c.amr_pos || "-"}</Td>
+                <Td>{c.product_no ?? "-"}</Td>
+                <Td><PlcVal data={c.call_signal} /></Td>
+                <Td><PlcVal data={c.call_qty} /></Td>
+                <Td><PlcVal data={c.input_qty_1} /></Td>
+                <Td><PlcVal data={c.input_qty_4} /></Td>
+                <Td><PlcVal data={c.working} /></Td>
+                <Td><PlcVal data={c.work_done} /></Td>
               </tr>
             ))}
           />
@@ -263,51 +257,23 @@ const PlcStatusSection = ({ plcStatus, scenario }) => {
   return null;
 };
 
-// 스텝 포맷팅
-const formatStep = (step) => {
-  const { type, payload } = step;
-  if (type === "NAV") return payload?.dest || "-";
-  if (type === "MANI_WORK") {
-    const p = payload || {};
-    return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
-  }
-  if (type === "PLC_WRITE") return `${payload?.address} = ${payload?.value}`;
-  if (type === "PLC_WAIT") return `${payload?.address} == ${payload?.expected}`;
-  return JSON.stringify(payload);
-};
+// 스텝 리스트
+const StepList = ({ steps }) => {
+  if (!steps?.length) return <span style={{ color: "#9ca3af", fontSize: 10 }}>스텝 정보 없음</span>;
 
-// 드롭다운 섹션
-const DropdownSection = ({ title, count, children, defaultOpen = false }) => {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div style={{ marginTop: 8 }}>
-      <div
-        onClick={() => setOpen(!open)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          cursor: "pointer",
-          padding: "6px 0",
-          color: "#4b5563",
-          fontSize: 11,
-          fontWeight: 500,
-        }}
-      >
-        {open ? <CaretDownOutlined style={{ fontSize: 10 }} /> : <CaretRightOutlined style={{ fontSize: 10 }} />}
-        {title} {count != null && <span style={{ color: "#9ca3af", fontWeight: 400 }}>({count})</span>}
-      </div>
-      {open && <div style={{ paddingLeft: 16 }}>{children}</div>}
-    </div>
-  );
-};
+  const formatStep = (step) => {
+    const { type, payload } = step;
+    if (type === "NAV") return payload?.dest || "-";
+    if (type === "MANI_WORK") {
+      const p = payload || {};
+      return `CMD:${p.CMD_ID ?? "-"} FROM:${p.CMD_FROM ?? "-"} TO:${p.CMD_TO ?? "-"} P:${p.PRODUCT_NO ?? "-"} V:${p.VISION_CHECK ?? "-"}`;
+    }
+    if (type === "PLC_WRITE") return `${payload?.address} = ${payload?.value}`;
+    if (type === "PLC_WAIT") return `${payload?.address} == ${payload?.expected}`;
+    return JSON.stringify(payload);
+  };
 
-// 태스크 아이템
-const TaskItem = ({ task, expanded, onToggle }) => {
-  const StatusIcon = STATUS_CONFIG[task.status]?.icon || ClockCircleFilled;
-  const statusColor = STATUS_CONFIG[task.status]?.color || "#6b7280";
-
-  const stepTypeColors = {
+  const typeColors = {
     NAV: "#3b82f6",
     MANI_WORK: "#14b8a6",
     PLC_WRITE: "#a855f7",
@@ -315,152 +281,225 @@ const TaskItem = ({ task, expanded, onToggle }) => {
   };
 
   return (
+    <div style={{ maxHeight: 180, overflowY: "auto" }}>
+      {steps.map((step, idx) => (
+        <div key={idx} style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "3px 0",
+          borderBottom: "1px solid #f5f5f5",
+          fontSize: 10,
+        }}>
+          <span style={{ color: "#9ca3af", width: 18 }}>{step.seq ?? idx}</span>
+          <span style={{
+            padding: "1px 4px",
+            borderRadius: 2,
+            background: `${typeColors[step.type] || "#6b7280"}15`,
+            color: typeColors[step.type] || "#6b7280",
+            fontWeight: 500,
+            fontSize: 9,
+          }}>
+            {step.type}
+          </span>
+          <span style={{ color: "#4b5563", fontFamily: "monospace", fontSize: 9 }}>
+            {formatStep(step)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// 로그 아이템 (드롭다운)
+const LogItem = ({ log, scenario, plcStatus, steps, summary }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const evtConfig = {
+    TASK_CREATED: { color: "#3b82f6", label: "생성" },
+    TASK_STARTED: { color: "#14b8a6", label: "시작" },
+    TASK_DONE: { color: "#10b981", label: "완료" },
+    TASK_FAILED: { color: "#ef4444", label: "실패" },
+    TASK_CANCELED: { color: "#f59e0b", label: "취소" },
+    STEP_STARTED: { color: "#6366f1", label: "스텝시작" },
+    STEP_DONE: { color: "#22c55e", label: "스텝완료" },
+    STEP_FAILED: { color: "#f87171", label: "스텝실패" },
+  };
+
+  const cfg = evtConfig[log.event] || { color: "#6b7280", label: log.event };
+  const hasDetail = log.event === "TASK_CREATED" || log.event.startsWith("STEP_");
+
+  return (
     <div style={{
       background: "#fff",
-      borderRadius: 10,
-      marginBottom: 6,
-      overflow: "hidden",
-      boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+      borderRadius: 6,
+      marginBottom: 4,
       border: "1px solid #f3f4f6",
+      overflow: "hidden",
     }}>
       {/* 헤더 */}
+      <div
+        onClick={() => hasDetail && setExpanded(!expanded)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "8px 10px",
+          cursor: hasDetail ? "pointer" : "default",
+          gap: 8,
+        }}
+      >
+        {hasDetail && (
+          <span style={{ color: "#9ca3af", fontSize: 8 }}>
+            {expanded ? <DownOutlined /> : <RightOutlined />}
+          </span>
+        )}
+        <span style={{
+          fontFamily: "monospace",
+          fontSize: 10,
+          color: "#9ca3af",
+          minWidth: 50,
+        }}>
+          {dayjs(log.created_at).format("HH:mm:ss")}
+        </span>
+        <span style={{
+          padding: "2px 6px",
+          borderRadius: 3,
+          background: `${cfg.color}15`,
+          color: cfg.color,
+          fontWeight: 500,
+          fontSize: 10,
+          minWidth: 50,
+          textAlign: "center",
+        }}>
+          {cfg.label}
+        </span>
+        {log.step_seq != null && (
+          <span style={{ color: "#6b7280", fontSize: 10 }}>#{log.step_seq}</span>
+        )}
+        <span style={{ color: "#374151", fontSize: 11, flex: 1 }}>{log.message}</span>
+      </div>
+
+      {/* 상세 (드롭다운) */}
+      {expanded && hasDetail && (
+        <div style={{ padding: "8px 10px", borderTop: "1px solid #f3f4f6", background: "#fafafa" }}>
+          {log.event === "TASK_CREATED" && (
+            <div style={{ display: "flex", gap: 16 }}>
+              {/* 요약 + 스텝 */}
+              <div style={{ minWidth: 200 }}>
+                {summary && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>요약</div>
+                    <div style={{ fontSize: 10, color: "#374151", lineHeight: 1.5 }}>
+                      <div><span style={{ color: "#9ca3af" }}>출발</span> {summary.source || "-"}</div>
+                      <div><span style={{ color: "#9ca3af" }}>도착</span> {summary.target || "-"}</div>
+                      <div><span style={{ color: "#9ca3af" }}>수량</span> {summary.pickup_count ?? 0} → {summary.dropoff_count ?? 0}</div>
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>스텝 리스트 ({steps?.length || 0})</div>
+                <StepList steps={steps} />
+              </div>
+              {/* PLC 상태 */}
+              <div style={{ flex: 1, overflowX: "auto" }}>
+                <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>생성 시점 PLC 상태</div>
+                <PlcStatusSection plcStatus={plcStatus} scenario={scenario} />
+              </div>
+            </div>
+          )}
+
+          {log.event.startsWith("STEP_") && log.step_seq != null && steps?.[log.step_seq] && (
+            <div>
+              <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>스텝 #{log.step_seq} 상세</div>
+              <div style={{ fontSize: 10, color: "#374151", fontFamily: "monospace" }}>
+                {(() => {
+                  const step = steps[log.step_seq];
+                  const p = step?.payload || {};
+                  if (step?.type === "NAV") return `목적지: ${p.dest || "-"}`;
+                  if (step?.type === "MANI_WORK") {
+                    return (
+                      <div style={{ lineHeight: 1.6 }}>
+                        <div>CMD_ID: {p.CMD_ID ?? "-"}</div>
+                        <div>CMD_FROM: {p.CMD_FROM ?? "-"} (AMR 슬롯)</div>
+                        <div>CMD_TO: {p.CMD_TO ?? "-"} (마니퓰레이터 위치)</div>
+                        <div>PRODUCT_NO: {p.PRODUCT_NO ?? "-"}</div>
+                        <div>AMR_SLOT_NO: {p.AMR_SLOT_NO ?? "-"}</div>
+                        <div>VISION_CHECK: {p.VISION_CHECK ?? "-"}</div>
+                      </div>
+                    );
+                  }
+                  if (step?.type === "PLC_WRITE") return `주소: ${p.address}, 값: ${p.value}`;
+                  if (step?.type === "PLC_WAIT") return `주소: ${p.address}, 대기값: ${p.expected}`;
+                  return JSON.stringify(p, null, 2);
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 태스크 그룹
+const TaskGroup = ({ task, expanded, onToggle }) => {
+  const StatusIcon = STATUS_CONFIG[task.status]?.icon || ClockCircleFilled;
+  const statusColor = STATUS_CONFIG[task.status]?.color || "#6b7280";
+
+  return (
+    <div style={{
+      background: "#fff",
+      borderRadius: 8,
+      marginBottom: 8,
+      boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+      border: "1px solid #e5e7eb",
+      overflow: "hidden",
+    }}>
+      {/* 태스크 헤더 */}
       <div
         onClick={onToggle}
         style={{
           display: "flex",
           alignItems: "center",
-          padding: "12px 14px",
+          padding: "10px 12px",
           cursor: "pointer",
           gap: 10,
+          background: expanded ? "#f9fafb" : "#fff",
         }}
       >
         <span style={{ color: "#9ca3af", fontSize: 9 }}>
           {expanded ? <DownOutlined /> : <RightOutlined />}
         </span>
-        <StatusIcon style={{ fontSize: 16, color: statusColor }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937", minWidth: 50 }}>#{task.taskId}</span>
+        <StatusIcon style={{ fontSize: 14, color: statusColor }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937" }}>#{task.taskId}</span>
         <span style={{
-          padding: "2px 8px",
+          padding: "2px 6px",
           background: "#f3f4f6",
-          borderRadius: 4,
+          borderRadius: 3,
           fontSize: 10,
           color: "#4b5563",
         }}>
           {task.scenario ? SCENARIO_LABELS[task.scenario] : "-"}
         </span>
-        <span style={{ fontSize: 11, color: "#6b7280", minWidth: 90 }}>{task.robotName}</span>
-        <span style={{ fontSize: 11, color: "#9ca3af" }}>{task.createdAt?.format("MM/DD HH:mm:ss")}</span>
-        {task.duration != null && (
-          <span style={{ fontSize: 11, color: "#6b7280" }}>{task.duration}s</span>
-        )}
+        <span style={{ fontSize: 10, color: "#6b7280" }}>{task.robotName}</span>
+        <span style={{ fontSize: 10, color: "#9ca3af" }}>{task.createdAt?.format("MM/DD HH:mm:ss")}</span>
+        {task.duration != null && <span style={{ fontSize: 10, color: "#6b7280" }}>{task.duration}s</span>}
         <div style={{ flex: 1 }} />
-        {task.stepDone > 0 && (
-          <span style={{ fontSize: 10, color: "#10b981" }}>{task.stepDone}완료</span>
-        )}
-        {task.stepFailed > 0 && (
-          <span style={{ fontSize: 10, color: "#ef4444", marginLeft: 6 }}>{task.stepFailed}실패</span>
-        )}
+        <span style={{ fontSize: 10, color: "#9ca3af" }}>{task.logs?.length || 0}건</span>
       </div>
 
-      {/* 확장 영역 */}
+      {/* 로그 목록 */}
       {expanded && (
-        <div style={{ padding: "0 14px 14px", borderTop: "1px solid #f3f4f6" }}>
-          {/* 요약 + PLC 상태 */}
-          <div style={{ display: "flex", gap: 24, paddingTop: 12 }}>
-            {/* 요약 */}
-            <div style={{ minWidth: 160 }}>
-              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 6 }}>요약</div>
-              {task.summary ? (
-                <div style={{ fontSize: 11, color: "#374151", lineHeight: 1.6 }}>
-                  <div><span style={{ color: "#9ca3af" }}>출발</span> {task.summary.source || "-"}</div>
-                  <div><span style={{ color: "#9ca3af" }}>도착</span> {task.summary.target || "-"}</div>
-                  <div><span style={{ color: "#9ca3af" }}>수량</span> {task.summary.pickup_count ?? 0} → {task.summary.dropoff_count ?? 0}</div>
-                </div>
-              ) : (
-                <span style={{ color: "#9ca3af", fontSize: 11 }}>-</span>
-              )}
-            </div>
-            {/* PLC 상태 */}
-            <div style={{ flex: 1, overflowX: "auto" }}>
-              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 6 }}>생성 시점 PLC 상태</div>
-              <PlcStatusSection plcStatus={task.plcStatus} scenario={task.scenario} />
-            </div>
-          </div>
-
-          {/* 스텝 리스트 드롭다운 */}
-          <DropdownSection title="스텝 리스트" count={task.steps?.length}>
-            <div style={{ maxHeight: 200, overflowY: "auto" }}>
-              {(task.steps || []).map((step, idx) => (
-                <div key={idx} style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "4px 0",
-                  borderBottom: "1px solid #f9fafb",
-                  fontSize: 10,
-                }}>
-                  <span style={{ color: "#9ca3af", width: 20 }}>{step.seq ?? idx}</span>
-                  <span style={{
-                    padding: "1px 5px",
-                    borderRadius: 3,
-                    background: `${stepTypeColors[step.type] || "#6b7280"}15`,
-                    color: stepTypeColors[step.type] || "#6b7280",
-                    fontWeight: 500,
-                    fontSize: 9,
-                  }}>
-                    {step.type}
-                  </span>
-                  <span style={{ color: "#4b5563", fontFamily: "monospace", fontSize: 10 }}>
-                    {formatStep(step)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </DropdownSection>
-
-          {/* 실행 로그 드롭다운 */}
-          <DropdownSection title="실행 로그" count={task.logs?.length}>
-            <div style={{ maxHeight: 200, overflowY: "auto" }}>
-              {(task.logs || []).map((log, idx) => {
-                const evtColor =
-                  log.event.includes("DONE") ? "#10b981" :
-                  log.event.includes("FAIL") ? "#ef4444" :
-                  log.event.includes("CREATE") ? "#3b82f6" :
-                  log.event.includes("START") ? "#14b8a6" :
-                  log.event.includes("CANCEL") ? "#f59e0b" : "#6b7280";
-                return (
-                  <div key={log.id || idx} style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "4px 0",
-                    borderBottom: "1px solid #f9fafb",
-                    fontSize: 10,
-                  }}>
-                    <span style={{ color: "#9ca3af", fontFamily: "monospace", fontSize: 10, minWidth: 50 }}>
-                      {dayjs(log.created_at).format("HH:mm:ss")}
-                    </span>
-                    <span style={{
-                      padding: "1px 5px",
-                      borderRadius: 3,
-                      background: `${evtColor}15`,
-                      color: evtColor,
-                      fontWeight: 500,
-                      fontSize: 9,
-                      minWidth: 40,
-                      textAlign: "center",
-                    }}>
-                      {log.event.replace("TASK_", "").replace("STEP_", "S-")}
-                    </span>
-                    {log.step_seq != null && (
-                      <span style={{ color: "#9ca3af", fontSize: 10 }}>#{log.step_seq}</span>
-                    )}
-                    <span style={{ color: "#4b5563", flex: 1 }}>{log.message}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </DropdownSection>
+        <div style={{ padding: "8px 12px", background: "#f9fafb" }}>
+          {(task.logs || []).map((log) => (
+            <LogItem
+              key={log.id}
+              log={log}
+              scenario={task.scenario}
+              plcStatus={task.plcStatus}
+              steps={task.steps}
+              summary={task.summary}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -602,15 +641,14 @@ export default function TaskLogs() {
   const runningTasks = groupedData.filter(t => t.status === "진행중").length;
 
   return (
-    <div style={{ padding: 20, background: "#f9fafb", minHeight: "100vh" }}>
+    <div style={{ padding: 16, background: "#f3f4f6", minHeight: "100vh" }}>
       {/* 헤더 */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: "#111827" }}>태스크 실행 내역</h1>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>AMR 태스크 실행 기록</span>
+            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#111827" }}>태스크 실행 로그</h1>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 6 }}>
             <Popconfirm
               title="30일 이전 로그 삭제"
               onConfirm={() => deleteMut.mutate(30)}
@@ -621,12 +659,12 @@ export default function TaskLogs() {
                 display: "flex",
                 alignItems: "center",
                 gap: 4,
-                padding: "6px 12px",
+                padding: "5px 10px",
                 background: "#fff",
                 border: "1px solid #e5e7eb",
-                borderRadius: 6,
+                borderRadius: 5,
                 cursor: "pointer",
-                fontSize: 12,
+                fontSize: 11,
                 color: "#6b7280",
               }}>
                 <DeleteOutlined /> 정리
@@ -638,12 +676,12 @@ export default function TaskLogs() {
                 display: "flex",
                 alignItems: "center",
                 gap: 4,
-                padding: "6px 12px",
+                padding: "5px 10px",
                 background: "#3b82f6",
                 border: "none",
-                borderRadius: 6,
+                borderRadius: 5,
                 cursor: "pointer",
-                fontSize: 12,
+                fontSize: 11,
                 color: "#fff",
               }}
             >
@@ -653,7 +691,7 @@ export default function TaskLogs() {
         </div>
 
         {/* 통계 */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <StatCard label="전체" value={stats?.total || totalTasks} color="#111827" />
           <StatCard label="완료" value={stats?.byEvent?.TASK_DONE || doneTasks} color="#10b981" icon={CheckCircleFilled} />
           <StatCard label="실패" value={stats?.byEvent?.TASK_FAILED || failedTasks} color="#ef4444" icon={CloseCircleFilled} />
@@ -663,18 +701,17 @@ export default function TaskLogs() {
         {/* 필터 */}
         <div style={{
           display: "flex",
-          gap: 8,
-          padding: 10,
+          gap: 6,
+          padding: 8,
           background: "#fff",
-          borderRadius: 8,
-          boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+          borderRadius: 6,
         }}>
           <Input
             placeholder="Task ID"
             prefix={<SearchOutlined style={{ color: "#9ca3af" }} />}
             value={filters.task_id}
             onChange={(e) => handleFilterChange("task_id", e.target.value)}
-            style={{ width: 100 }}
+            style={{ width: 90 }}
             allowClear
             size="small"
           />
@@ -682,7 +719,7 @@ export default function TaskLogs() {
             placeholder="AMR"
             value={filters.robot_name}
             onChange={(e) => handleFilterChange("robot_name", e.target.value)}
-            style={{ width: 100 }}
+            style={{ width: 90 }}
             allowClear
             size="small"
           />
@@ -690,7 +727,7 @@ export default function TaskLogs() {
             placeholder="상태"
             value={filters.event || undefined}
             onChange={(v) => handleFilterChange("event", v)}
-            style={{ width: 90 }}
+            style={{ width: 80 }}
             allowClear
             size="small"
             options={[
@@ -711,12 +748,12 @@ export default function TaskLogs() {
               setPage(1);
             }}
             style={{
-              padding: "2px 10px",
+              padding: "2px 8px",
               background: "transparent",
               border: "1px solid #e5e7eb",
               borderRadius: 4,
               cursor: "pointer",
-              fontSize: 12,
+              fontSize: 11,
               color: "#6b7280",
             }}
           >
@@ -731,13 +768,13 @@ export default function TaskLogs() {
           <Spin />
         </div>
       ) : groupedData.length === 0 ? (
-        <div style={{ background: "#fff", borderRadius: 10, padding: 40, textAlign: "center" }}>
+        <div style={{ background: "#fff", borderRadius: 8, padding: 40, textAlign: "center" }}>
           <Empty description="실행 내역 없음" />
         </div>
       ) : (
         <div>
           {groupedData.slice(0, 50).map((task) => (
-            <TaskItem
+            <TaskGroup
               key={task.taskId}
               task={task}
               expanded={expandedIds.has(task.taskId)}
@@ -745,7 +782,7 @@ export default function TaskLogs() {
             />
           ))}
           {groupedData.length > 50 && (
-            <div style={{ textAlign: "center", padding: 12, color: "#9ca3af", fontSize: 12 }}>
+            <div style={{ textAlign: "center", padding: 10, color: "#9ca3af", fontSize: 11 }}>
               최근 50개만 표시
             </div>
           )}
