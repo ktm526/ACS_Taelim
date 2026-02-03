@@ -370,6 +370,7 @@ function getSideSlots(slots, side) {
     const item = slots?.[key] || {};
     const productTypeValue = resolvePlcValue(item.product_type_id);
     return {
+      side,
       key,
       index: idx,
       product_type_id: normalizeText(item.product_type_id),
@@ -559,6 +560,7 @@ async function createTaskForSides(sides, config, activeTasks) {
     availableCounts.set(productKey, count - 1);
     slotAssignments.push({
       slotIndex: slot.index,
+      instocker_side: slot.side,
       product_type_id: slot.product_type_id,
       product_type_value: slot.product_type_value,
       instocker_mani_pos: slot.mani_pos,
