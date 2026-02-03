@@ -1513,88 +1513,111 @@ export default function AMRStatus() {
                       </Descriptions>
                       
                       {/* 로봇 팔 상태 */}
-                      <Divider style={{ margin: '12px 0' }}>로봇 팔 (Doosan)</Divider>
-                      {armStateLoading && !armState ? (
-                        <Text type="secondary">로딩 중...</Text>
-                      ) : armState ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                          {/* 상태 정보 */}
-                          <Card size="small" title="상태" style={{ fontSize: 12 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-                              <div>
-                                <Text type="secondary">태스크:</Text>{' '}
-                                <Tag color={armState.TASK_STATUS === '0' ? 'default' : 'processing'}>
-                                  {armState.TASK_STATUS === '0' ? '대기' : `실행중(${armState.TASK_STATUS})`}
+                      <div style={{ marginTop: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <Text strong style={{ fontSize: 13, color: '#1f1f1f' }}>로봇 팔 (Doosan)</Text>
+                          {armStateLoading && <Text type="secondary" style={{ fontSize: 11 }}>갱신 중...</Text>}
+                        </div>
+                        {armState ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {/* 상태 행 */}
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#8c8c8c' }}>태스크</span>
+                                <Tag 
+                                  color={armState.TASK_STATUS === '0' ? 'default' : 'processing'} 
+                                  style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
+                                >
+                                  {armState.TASK_STATUS === '0' ? 'IDLE' : 'RUN'}
                                 </Tag>
                               </div>
-                              <div>
-                                <Text type="secondary">상태:</Text>{' '}
-                                <Tag color={armState.ROBOT_STATUS === '0' ? 'green' : 'orange'}>
-                                  {armState.ROBOT_STATUS === '0' ? '정상' : armState.ROBOT_STATUS}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#8c8c8c' }}>상태</span>
+                                <Tag 
+                                  color={armState.ROBOT_STATUS === '0' ? 'success' : 'warning'} 
+                                  style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
+                                >
+                                  {armState.ROBOT_STATUS === '0' ? 'OK' : armState.ROBOT_STATUS}
                                 </Tag>
                               </div>
-                              <div>
-                                <Text type="secondary">로봇에러:</Text>{' '}
-                                <Tag color={armState.ROBOT_ERROR === '0' ? 'default' : 'error'}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#8c8c8c' }}>에러</span>
+                                <Tag 
+                                  color={armState.ROBOT_ERROR === '0' ? 'default' : 'error'} 
+                                  style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
+                                >
                                   {armState.ROBOT_ERROR}
                                 </Tag>
                               </div>
-                              <div>
-                                <Text type="secondary">비전에러:</Text>{' '}
-                                <Tag color={armState.VISION_ERROR === '0' ? 'default' : 'error'}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#8c8c8c' }}>비전</span>
+                                <Tag 
+                                  color={armState.VISION_ERROR === '0' ? 'default' : 'error'} 
+                                  style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
+                                >
                                   {armState.VISION_ERROR}
                                 </Tag>
                               </div>
-                              <div>
-                                <Text type="secondary">CMD FROM:</Text> {armState.ROBOT_CMD_FROM}
-                              </div>
-                              <div>
-                                <Text type="secondary">CMD TO:</Text> {armState.ROBOT_CMD_TO}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#8c8c8c' }}>FROM→TO</span>
+                                <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#262626' }}>
+                                  {armState.ROBOT_CMD_FROM}→{armState.ROBOT_CMD_TO}
+                                </span>
                               </div>
                             </div>
-                          </Card>
-                          
-                          {/* 관절 온도 */}
-                          <Card size="small" title="관절 온도 (°C)" style={{ fontSize: 12 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, textAlign: 'center' }}>
+                            
+                            {/* 관절 데이터 테이블 */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'auto repeat(6, 1fr)', 
+                              gap: 0,
+                              fontSize: 11,
+                              border: '1px solid #e8e8e8',
+                              borderRadius: 4,
+                              overflow: 'hidden',
+                              background: '#fff'
+                            }}>
+                              {/* 헤더 */}
+                              <div style={{ padding: '6px 10px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', fontWeight: 500, color: '#595959' }}></div>
+                              {[1,2,3,4,5,6].map(i => (
+                                <div key={i} style={{ padding: '6px 8px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', borderLeft: '1px solid #e8e8e8', textAlign: 'center', fontWeight: 500, color: '#595959' }}>
+                                  J{i}
+                                </div>
+                              ))}
+                              
+                              {/* 온도 행 */}
+                              <div style={{ padding: '6px 10px', borderBottom: '1px solid #e8e8e8', color: '#8c8c8c' }}>온도</div>
                               {[1,2,3,4,5,6].map(i => {
                                 const temp = parseInt(armState[`JOINT_MOTOR_TEMPERATURE_${i}`] || '0', 10);
-                                const color = temp > 50 ? '#ff4d4f' : temp > 40 ? '#faad14' : '#52c41a';
+                                const color = temp > 50 ? '#ff4d4f' : temp > 40 ? '#faad14' : '#389e0d';
                                 return (
-                                  <div key={i}>
-                                    <Text type="secondary">J{i}:</Text>{' '}
-                                    <Text style={{ color, fontWeight: 500 }}>{temp}</Text>
+                                  <div key={i} style={{ padding: '6px 8px', borderBottom: '1px solid #e8e8e8', borderLeft: '1px solid #e8e8e8', textAlign: 'center', fontFamily: 'monospace', color, fontWeight: 500 }}>
+                                    {temp}°
                                   </div>
                                 );
                               })}
-                            </div>
-                          </Card>
-                          
-                          {/* 관절 위치 */}
-                          <Card size="small" title="관절 위치" style={{ fontSize: 12 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, textAlign: 'center' }}>
+                              
+                              {/* 위치 행 */}
+                              <div style={{ padding: '6px 10px', borderBottom: '1px solid #e8e8e8', color: '#8c8c8c' }}>위치</div>
                               {[1,2,3,4,5,6].map(i => (
-                                <div key={i}>
-                                  <Text type="secondary">J{i}:</Text> {armState[`JOINT_POSITION_${i}`]}
+                                <div key={i} style={{ padding: '6px 8px', borderBottom: '1px solid #e8e8e8', borderLeft: '1px solid #e8e8e8', textAlign: 'center', fontFamily: 'monospace', color: '#262626' }}>
+                                  {armState[`JOINT_POSITION_${i}`]}
+                                </div>
+                              ))}
+                              
+                              {/* 토크 행 */}
+                              <div style={{ padding: '6px 10px', color: '#8c8c8c' }}>토크</div>
+                              {[1,2,3,4,5,6].map(i => (
+                                <div key={i} style={{ padding: '6px 8px', borderLeft: '1px solid #e8e8e8', textAlign: 'center', fontFamily: 'monospace', color: '#262626' }}>
+                                  {armState[`JOINT_TORQUE_${i}`]}
                                 </div>
                               ))}
                             </div>
-                          </Card>
-                          
-                          {/* 관절 토크 */}
-                          <Card size="small" title="관절 토크" style={{ fontSize: 12 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, textAlign: 'center' }}>
-                              {[1,2,3,4,5,6].map(i => (
-                                <div key={i}>
-                                  <Text type="secondary">J{i}:</Text> {armState[`JOINT_TORQUE_${i}`]}
-                                </div>
-                              ))}
-                            </div>
-                          </Card>
-                        </div>
-                      ) : (
-                        <Text type="secondary">로봇 팔 상태를 가져올 수 없습니다</Text>
-                      )}
+                          </div>
+                        ) : (
+                          <Text type="secondary" style={{ fontSize: 12 }}>로봇 팔 상태를 가져올 수 없습니다</Text>
+                        )}
+                      </div>
                       </>
                     ),
                   },
