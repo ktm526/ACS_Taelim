@@ -3,6 +3,7 @@ const ModbusRTU = require("modbus-serial");
 const net = require("net");
 const plc = require("./plcMonitorService");
 const { Task, TaskStep, TaskLog } = require("../models");
+const Settings = require("../models/Settings");
 const Robot = require("../models/Robot");
 const MapDB = require("../models/Map");
 const { sendGotoNav } = require("./navService");
@@ -58,6 +59,26 @@ const inFlightNav = new Set();
 const inFlightMani = new Set();
 let timer = null;
 let maniSerial = 0;
+
+function isChargingBlocked(robot, settingsRow) {
+  if (!robot) return false;
+  const info = (() => {
+    try {
+      return typeof robot.additional_info === "string"
+        ? JSON.parse(robot.additional_info)
+        : robot.additional_info || {};
+    } catch {
+      return {};
+    }
+  })();
+  const charging = info?.charging === true || robot.status === "충전";
+  if (!charging) return false;
+  const threshold = Number(settingsRow?.charge_complete_percent ?? 90);
+  if (!Number.isFinite(threshold)) return false;
+  const battery = Number(robot.battery);
+  if (!Number.isFinite(battery)) return true;
+  return battery < threshold;
+}
 
 function parseBitIndex(rawBit) {
   if (rawBit === null || rawBit === undefined) return null;
@@ -692,7 +713,7 @@ async function progressTask(task, robot) {
   }
 }
 
-async function handleRobot(robot, tasks) {
+async function handleRobot(robot, tasks, settingsRow) {
   if (robotLocks.get(robot.id)) return;
   robotLocks.set(robot.id, true);
   try {
@@ -708,6 +729,10 @@ async function handleRobot(robot, tasks) {
       // '대기' 또는 '작업 중' 상태일 때 태스크 시작 허용
       // (amrMonitorService에서 PENDING 태스크가 있으면 '작업 중'으로 변경하므로)
       if (robot.status === "대기" || robot.status === "작업 중") {
+        if (isChargingBlocked(robot, settingsRow)) {
+          // PLC에서 읽은 설정값(충전 완료 기준) 기준으로 실행 보류
+          return;
+        }
         //console.log(`[Executor] Robot ${robot.name}: Task#${pendingTask.id} 시작 (${pendingTask.steps?.length || 0} steps, 로봇상태: ${robot.status})`);
         await pendingTask.update({ status: "RUNNING", current_seq: 0 });
         await logTaskEvent(pendingTask.id, "TASK_STARTED", `태스크 시작 (${pendingTask.steps?.length || 0} 스텝)`, {
@@ -731,6 +756,7 @@ let tickCount = 0;
 
 async function tick() {
   tickCount++;
+  const settingsRow = await Settings.findByPk(1);
   const robots = await Robot.findAll();
   const tasks = await Task.findAll({
     where: { status: ["PENDING", "RUNNING"] },
@@ -759,7 +785,7 @@ async function tick() {
     }
     const list = tasksByRobot.get(robot.id) || [];
     if (!list.length) continue;
-    await handleRobot(robot, list);
+    await handleRobot(robot, list, settingsRow);
   }
 }
 
