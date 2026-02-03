@@ -59,7 +59,19 @@ exports.create = async (req, res) => {
 exports.pause = async (req, res) => {
   const task = await Task.findByPk(req.params.id);
   if (!task) return res.sendStatus(404);
+  
+  const robot = task.robot_id ? await Robot.findByPk(task.robot_id) : null;
   await task.update({ status: 'PAUSED' });
+  
+  // 로그 기록
+  await TaskLog.create({
+    task_id: task.id,
+    robot_id: robot?.id || null,
+    robot_name: robot?.name || null,
+    event: 'TASK_PAUSED',
+    message: '태스크 일시정지',
+  });
+  console.log(`[TaskController] Task#${task.id} 일시정지`);
 
   res.json({ success: true });
 };
@@ -70,7 +82,20 @@ exports.resume = async (req, res) => {
   if (!task) return res.sendStatus(404);
   if (!['PAUSED', 'FAILED'].includes(task.status))
     return res.status(400).json({ msg: 'not resumable' });
+  
+  const robot = task.robot_id ? await Robot.findByPk(task.robot_id) : null;
+  const prevStatus = task.status;
   await task.update({ status: 'PENDING' });
+  
+  // 로그 기록
+  await TaskLog.create({
+    task_id: task.id,
+    robot_id: robot?.id || null,
+    robot_name: robot?.name || null,
+    event: 'TASK_RESUMED',
+    message: prevStatus === 'FAILED' ? '실패 태스크 재개' : '태스크 재개',
+  });
+  console.log(`[TaskController] Task#${task.id} 재개 (이전 상태: ${prevStatus})`);
 
   res.json({ success: true });
 };
@@ -99,6 +124,15 @@ exports.restart = async (req, res) => {
     // DI 입력의 handleRestartSignal과 동일한 로직
     if (task.status === 'PAUSED') {
       await task.update({ status: 'RUNNING' });
+      
+      // 로그 기록
+      await TaskLog.create({
+        task_id: task.id,
+        robot_id: robot.id,
+        robot_name: robot.name,
+        event: 'TASK_RESTARTED',
+        message: '태스크 재시작 (PAUSED → RUNNING)',
+      });
       console.log(`[API_RESTART] ${robot.name}: 태스크 상태를 PAUSED → RUNNING으로 변경`);
     }
     

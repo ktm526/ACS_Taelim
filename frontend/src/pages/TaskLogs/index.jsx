@@ -394,9 +394,12 @@ const LogItem = ({ log, scenario, plcStatus, steps, summary, stepLogs }) => {
   const evtConfig = {
     TASK_CREATED: { color: "#3b82f6", label: "생성" },
     TASK_STARTED: { color: "#14b8a6", label: "시작" },
+    TASK_PAUSED: { color: "#f59e0b", label: "일시정지" },
+    TASK_RESUMED: { color: "#8b5cf6", label: "재개" },
+    TASK_RESTARTED: { color: "#06b6d4", label: "재시작" },
     TASK_DONE: { color: "#10b981", label: "완료" },
     TASK_FAILED: { color: "#ef4444", label: "실패" },
-    TASK_CANCELED: { color: "#f59e0b", label: "취소" },
+    TASK_CANCELED: { color: "#f97316", label: "취소" },
   };
 
   const cfg = evtConfig[log.event] || { color: "#6b7280", label: log.event };
