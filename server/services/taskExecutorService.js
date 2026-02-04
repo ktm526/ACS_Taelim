@@ -225,7 +225,7 @@ function sendTcpCommand(ip, port, apiCode, payload, logLabel = "") {
     });
     
     sock.once("error", (e) => finish(e));
-    sock.setTimeout(3000, () => {
+    sock.setTimeout(1500, () => {
       if (!resolved) {
         // 타임아웃이지만 데이터가 없으면 에러, 있으면 그냥 완료
         if (chunks.length === 0) {
@@ -338,7 +338,7 @@ async function waitForManiResult(robotId, taskId, logLabel = "") {
         // DI가 false로 변경되는 것을 확인
         let resetConfirmed = false;
         const resetStartTime = Date.now();
-        const resetTimeout = 3000; // 5초 타임아웃
+        const resetTimeout = 1500; // 5초 타임아웃
         while (Date.now() - resetStartTime <= resetTimeout) {
           await delay(200);
           const checkRobot = await Robot.findByPk(robotId);

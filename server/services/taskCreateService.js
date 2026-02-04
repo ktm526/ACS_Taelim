@@ -31,7 +31,7 @@ async function checkRobotTaskStatus(robotIp) {
       DOOSAN_STATE_PORT,
       DOOSAN_STATE_API,
       DOOSAN_STATE_MESSAGE,
-      3000 // 3초 타임아웃
+      1500 // 3초 타임아웃
     );
     if (response && response.response) {
       const taskStatus = response.response.TASK_STATUS;
