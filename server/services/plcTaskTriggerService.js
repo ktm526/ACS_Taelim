@@ -170,7 +170,7 @@ async function writeSignals({ side = "ALL", value = 1 } = {}) {
   }
 
   const client = new ModbusRTU();
-  client.setTimeout(5000);
+  client.setTimeout(1500);
   await client.connectTCP(HOST, { port: PORT });
   client.setID(UNIT_ID);
 
