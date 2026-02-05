@@ -53,7 +53,7 @@ const MANI_WORK_ERR_DI = Number.parseInt(
   10
 );
 
-const EXECUTE_INTERVAL_MS = 1000;
+const EXECUTE_INTERVAL_MS = 100;
 const robotLocks = new Map();
 const inFlightNav = new Set();
 const inFlightMani = new Set();
@@ -616,7 +616,7 @@ async function executeStep(step, robot) {
     if (!payload.PLC_BIT) throw new Error("PLC_WRITE id missing");
     console.log(`${stepLabel}: PLC_WRITE ${payload.PLC_BIT}=${payload.PLC_DATA}`);
     await writePlc(payload.PLC_BIT, payload.PLC_DATA);
-    await delay(500);
+    await delay(100);
     console.log(`${stepLabel}: PLC_WRITE 완료`);
     return true;
   }
