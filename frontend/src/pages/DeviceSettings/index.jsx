@@ -588,47 +588,132 @@ export default function DeviceSettings() {
 
   // PLC 값 쓰기
   const [writingId, setWritingId] = useState(null);
-  const [writeValue, setWriteValue] = useState(0);
   const [popoverOpen, setPopoverOpen] = useState({});
+  // plcId별 입력값/피드백을 폴링 업데이트와 분리해서 유지
+  const [plcWriteUi, setPlcWriteUi] = useState({}); // { [plcId]: { draft, dirty, status, message, at } }
+
+  const getWriteUi = (plcId) => plcWriteUi?.[plcId] || {};
+
+  const extractErrMessage = (err) => {
+    const fromRes = err?.response?.data?.message || err?.response?.data?.error;
+    if (fromRes) return String(fromRes);
+    if (err?.message) return String(err.message);
+    return "전송 실패";
+  };
 
   const handlePlcWrite = async (plcId, val) => {
     if (!plcId) return;
     setWritingId(plcId);
+    setPlcWriteUi((prev) => ({
+      ...prev,
+      [plcId]: {
+        ...(prev?.[plcId] || {}),
+        draft: val,
+        dirty: false,
+        status: "loading",
+        message: "전송 중...",
+        at: Date.now(),
+      },
+    }));
     try {
       const res = await apiClient.post("/api/plc/write", { id: plcId, value: val });
-      if (res.data?.success) {
+      const ok = res?.data?.success === true || res?.success === true;
+      const serverMsg = res?.data?.message || res?.message;
+      if (ok) {
         message.success(`${plcId} → ${val} 전송 완료`);
+        setPlcWriteUi((prev) => ({
+          ...prev,
+          [plcId]: {
+            ...(prev?.[plcId] || {}),
+            draft: val,
+            dirty: false,
+            status: "success",
+            message: serverMsg ? String(serverMsg) : "전송 성공",
+            at: Date.now(),
+          },
+        }));
+        // 성공 시 팝오버는 닫되, 마지막 결과는 저장해서 다음에 열어도 확인 가능
         setPopoverOpen((prev) => ({ ...prev, [plcId]: false }));
       } else {
-        message.error(res.data?.message || "전송 실패");
+        const reason = serverMsg ? String(serverMsg) : "전송 실패";
+        message.error(reason);
+        setPlcWriteUi((prev) => ({
+          ...prev,
+          [plcId]: {
+            ...(prev?.[plcId] || {}),
+            status: "error",
+            message: reason,
+            at: Date.now(),
+          },
+        }));
       }
     } catch (err) {
-      message.error(err.message || "전송 실패");
+      const reason = extractErrMessage(err);
+      message.error(reason);
+      setPlcWriteUi((prev) => ({
+        ...prev,
+        [plcId]: {
+          ...(prev?.[plcId] || {}),
+          status: "error",
+          message: reason,
+          at: Date.now(),
+        },
+      }));
     } finally {
       setWritingId(null);
     }
   };
 
   const PlcValueEditor = ({ plcId, currentValue }) => {
-    const [localValue, setLocalValue] = useState(currentValue ?? 0);
-    
+    const ui = getWriteUi(plcId);
+    const draft = ui?.draft ?? (currentValue ?? 0);
+    const status = ui?.status;
+    const statusMsg = ui?.message;
+    const statusColor =
+      status === "success" ? "#10b981" : status === "error" ? "#ef4444" : status === "loading" ? "#3b82f6" : "#6b7280";
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 4 }}>
         <div style={{ fontSize: 12, color: "#666" }}>
           <strong>{plcId}</strong> 값 쓰기
         </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "#9ca3af" }}>
+            현재값: <span style={{ color: "#374151", fontFamily: "monospace" }}>{currentValue ?? "-"}</span>
+          </span>
+          {status && (
+            <span style={{ fontSize: 11, color: statusColor }}>
+              {status === "loading" ? "전송중" : status === "success" ? "성공" : "실패"}
+            </span>
+          )}
+        </div>
         <InputNumber
           size="small"
-          value={localValue}
-          onChange={(v) => setLocalValue(v ?? 0)}
+          value={draft}
+          onChange={(v) => {
+            const next = v ?? 0;
+            setPlcWriteUi((prev) => ({
+              ...prev,
+              [plcId]: {
+                ...(prev?.[plcId] || {}),
+                draft: next,
+                dirty: true,
+              },
+            }));
+          }}
           style={{ width: 100 }}
           autoFocus
+          disabled={writingId === plcId}
         />
+        {statusMsg && (
+          <div style={{ fontSize: 11, color: statusColor, lineHeight: 1.2 }}>
+            {statusMsg}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 4 }}>
           <Button
             size="small"
             onClick={() => {
-              setLocalValue(0);
               handlePlcWrite(plcId, 0);
             }}
             loading={writingId === plcId}
@@ -638,7 +723,6 @@ export default function DeviceSettings() {
           <Button
             size="small"
             onClick={() => {
-              setLocalValue(1);
               handlePlcWrite(plcId, 1);
             }}
             loading={writingId === plcId}
@@ -648,7 +732,7 @@ export default function DeviceSettings() {
           <Button
             size="small"
             type="primary"
-            onClick={() => handlePlcWrite(plcId, localValue)}
+            onClick={() => handlePlcWrite(plcId, draft)}
             loading={writingId === plcId}
           >
             전송
@@ -674,7 +758,24 @@ export default function DeviceSettings() {
         content={<PlcValueEditor plcId={plcId} currentValue={value} />}
         trigger="click"
         open={popoverOpen[plcId]}
-        onOpenChange={(open) => setPopoverOpen((prev) => ({ ...prev, [plcId]: open }))}
+        onOpenChange={(open) => {
+          setPopoverOpen((prev) => ({ ...prev, [plcId]: open }));
+          if (open) {
+            // 팝오버를 열 때만 "현재값"을 초깃값으로 채움 (사용자가 입력중이면 유지)
+            setPlcWriteUi((prev) => {
+              const existing = prev?.[plcId] || {};
+              if (existing.dirty) return prev;
+              return {
+                ...prev,
+                [plcId]: {
+                  ...existing,
+                  draft: existing.draft ?? (value ?? 0),
+                  dirty: false,
+                },
+              };
+            });
+          }
+        }}
       >
         <Tag
           color={hasValue ? "blue" : "default"}
