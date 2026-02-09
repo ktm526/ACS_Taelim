@@ -1,5 +1,23 @@
 // server/index.js
 require('dotenv').config();
+
+// 로그 최소화: 기본은 AMR↔PLC 비교 표만 출력
+// - LOG_MODE=all 로 설정하면 기존 콘솔 로그 유지
+const LOG_MODE = process.env.LOG_MODE || "amr_plc_only";
+if (LOG_MODE === "amr_plc_only") {
+  const keepError = process.env.LOG_KEEP_ERRORS !== "0";
+  // eslint-disable-next-line no-global-assign
+  console.log = () => {};
+  // eslint-disable-next-line no-global-assign
+  console.info = () => {};
+  // eslint-disable-next-line no-global-assign
+  console.warn = () => {};
+  if (!keepError) {
+    // eslint-disable-next-line no-global-assign
+    console.error = () => {};
+  }
+}
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');

@@ -6,6 +6,7 @@ const ModbusRTU = require("modbus-serial");
 const Robot = require('../models/Robot');
 const { Task } = require('../models');
 const { sendAndReceive } = require('./tcpTestService');
+const { printAmrPlcCompareTable } = require("../utils/amrPlcCompareLog");
 //const { //logConnChange } = require('./connectionLogger');
 
 // PLC 연결 설정
@@ -284,12 +285,18 @@ async function writeAmrInfoToPlc(robot, infoValues) {
 
 // 주기적으로 PLC 상태와 AMR 상태를 비교 후 불일치 시 보정
 const PLC_RECONCILE_INTERVAL_MS = 1000;
+const lastComparePrintAt = new Map(); // robotId -> ts
+const COMPARE_PRINT_MIN_INTERVAL_MS = 1000; // 너무 잦은 출력 방지
 setInterval(async () => {
   if (!desiredStatusByRobot.size) return;
 
   for (const [robotId, desired] of desiredStatusByRobot.entries()) {
     const { name, plcIds, statusFlags } = desired || {};
     if (!plcIds || !statusFlags) continue;
+
+    const startedAt = Date.now();
+    const rows = [];
+    let hadMismatchOrWrite = false;
 
     const statusMapping = [
       { key: 'ready_id', label: 'ready', value: statusFlags.ready },
@@ -311,18 +318,34 @@ setInterval(async () => {
         const desiredValue = value ? 1 : 0;
         if (current === null || current === undefined) continue;
         summaryParts.push(`${label}=${Number(current)}`);
-        if (Number(current) !== desiredValue) {
-          //console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
+        const mismatch = Number(current) !== desiredValue;
+        let action = "";
+        if (mismatch) {
+          action = "WRITE";
+          hadMismatchOrWrite = true;
           await writePlcBit(plcId, desiredValue, name);
-        } else {
-          //console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
         }
+        rows.push({
+          group: "STAT",
+          label,
+          plcId,
+          desired: desiredValue,
+          current: Number(current),
+          action,
+          note: mismatch ? "mismatch" : "",
+        });
       } catch (e) {
-        //console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
+        hadMismatchOrWrite = true;
+        rows.push({
+          group: "STAT",
+          label,
+          plcId,
+          desired: value ? 1 : 0,
+          current: "-",
+          action: "ERR",
+          note: e?.message || "read failed",
+        });
       }
-    }
-    if (summaryParts.length) {
-      //console.log(`[AMR-PLC] ${name} PLC 상태 요약: ${summaryParts.join(", ")}`);
     }
 
     // info word 보정
@@ -355,18 +378,41 @@ setInterval(async () => {
           if (current === null || current === undefined) continue;
           infoSummary.push(`${label}=${Number(current)}`);
           if (Number(current) !== desiredValue) {
-            //console.log(`[AMR-PLC] ${name} 불일치 감지: ${label} ${plcId} 현재=${current} 목표=${desiredValue} → 보정 쓰기`);
+            hadMismatchOrWrite = true;
             await writePlcBit(plcId, desiredValue, name);
-          } else {
-            //console.log(`[AMR-PLC] ${name} 일치: ${label} ${plcId} 현재=${current} 목표=${desiredValue}`);
           }
+          const mismatch = Number(current) !== desiredValue;
+          rows.push({
+            group: "INFO",
+            label,
+            plcId,
+            desired: desiredValue,
+            current: Number(current),
+            action: mismatch ? "WRITE" : "",
+            note: mismatch ? "mismatch" : "",
+          });
         } catch (e) {
-          console.warn(`[AMR-PLC] ${name} PLC 상태 확인 실패 (${plcId}): ${e.message}`);
+          hadMismatchOrWrite = true;
+          rows.push({
+            group: "INFO",
+            label,
+            plcId,
+            desired: desiredValue,
+            current: "-",
+            action: "ERR",
+            note: e?.message || "read failed",
+          });
         }
       }
-      if (infoSummary.length) {
-        //console.log(`[AMR-PLC] ${name} PLC info 요약: ${infoSummary.join(", ")}`);
-      }
+    }
+
+    // 너무 자주 출력되지 않도록, mismatch/에러/쓰기 발생 시에만 출력 + 최소 간격 적용
+    const lastAt = lastComparePrintAt.get(robotId) || 0;
+    const now = Date.now();
+    if (hadMismatchOrWrite && now - lastAt >= COMPARE_PRINT_MIN_INTERVAL_MS) {
+      lastComparePrintAt.set(robotId, now);
+      const tookMs = Date.now() - startedAt;
+      printAmrPlcCompareTable({ robotName: name, rows, tookMs, onlyDiff: true });
     }
   }
 }, PLC_RECONCILE_INTERVAL_MS);
