@@ -205,6 +205,12 @@ exports.writePlc = async (req, res) => {
     }
     
     const writeValue = Number(value) || 0;
+    const startedAt = Date.now();
+    const reqTag = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const remote = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "-";
+    console.log(
+      `[PLC.write][${reqTag}] 요청 from=${remote} id=${String(id)} value=${String(value)} parsed=${parsed.type}:${parsed.wordAddr}${parsed.type === "bit" ? "." + parsed.bitIndex : ""}`
+    );
     
     await writeClient.connectTCP(HOST, { port: PORT });
     writeClient.setID(UNIT_ID);
@@ -212,7 +218,8 @@ exports.writePlc = async (req, res) => {
     if (parsed.type === "bit") {
       // 비트 쓰기: 현재 워드 읽고, 해당 비트만 변경 후 쓰기
       const currentData = await writeClient.readHoldingRegisters(parsed.wordAddr, 1);
-      let wordValue = currentData.data[0];
+      const beforeWord = Number(currentData?.data?.[0]);
+      let wordValue = beforeWord;
       
       if (writeValue) {
         wordValue |= (1 << parsed.bitIndex); // 비트 ON
@@ -221,17 +228,50 @@ exports.writePlc = async (req, res) => {
       }
       
       await writeClient.writeRegister(parsed.wordAddr, wordValue);
-      console.log(`[PLC.write] ${id} = ${writeValue} (word ${parsed.wordAddr} → ${wordValue})`);
+      // best-effort 검증 읽기 (실패해도 write 자체는 성공으로 처리)
+      let verifyWord = null;
+      let verifyBit = null;
+      try {
+        const verifyData = await writeClient.readHoldingRegisters(parsed.wordAddr, 1);
+        verifyWord = Number(verifyData?.data?.[0]);
+        if (Number.isFinite(verifyWord)) {
+          verifyBit = (verifyWord & (1 << parsed.bitIndex)) !== 0 ? 1 : 0;
+        }
+      } catch (e) {
+        console.warn(`[PLC.write][${reqTag}] verify read failed: ${e?.message || e}`);
+      }
+      const tookMs = Date.now() - startedAt;
+      console.log(
+        `[PLC.write][${reqTag}] OK bit ${id}=${writeValue} wordAddr=${parsed.wordAddr} bit=${parsed.bitIndex} beforeWord=${beforeWord} afterWord=${wordValue} verifyWord=${verifyWord} verifyBit=${verifyBit} tookMs=${tookMs}`
+      );
     } else {
       // 워드 쓰기
+      let beforeWord = null;
+      try {
+        const currentData = await writeClient.readHoldingRegisters(parsed.wordAddr, 1);
+        beforeWord = Number(currentData?.data?.[0]);
+      } catch (e) {
+        // 읽기 실패해도 쓰기는 시도
+        console.warn(`[PLC.write][${reqTag}] pre-read failed (word ${parsed.wordAddr}): ${e?.message || e}`);
+      }
       await writeClient.writeRegister(parsed.wordAddr, writeValue);
-      console.log(`[PLC.write] ${id} = ${writeValue}`);
+      let verifyWord = null;
+      try {
+        const verifyData = await writeClient.readHoldingRegisters(parsed.wordAddr, 1);
+        verifyWord = Number(verifyData?.data?.[0]);
+      } catch (e) {
+        console.warn(`[PLC.write][${reqTag}] verify read failed (word ${parsed.wordAddr}): ${e?.message || e}`);
+      }
+      const tookMs = Date.now() - startedAt;
+      console.log(
+        `[PLC.write][${reqTag}] OK word ${id}=${writeValue} wordAddr=${parsed.wordAddr} beforeWord=${beforeWord} verifyWord=${verifyWord} tookMs=${tookMs}`
+      );
     }
     
     writeClient.close();
     return res.json({ success: true, id, value: writeValue });
   } catch (e) {
-    console.error("[PLC.write]", e);
+    console.error(`[PLC.write] FAILED id=${req.body?.id ?? "-"} value=${req.body?.value ?? "-"} reason=${e?.message || e}`, e);
     try { writeClient.close(); } catch (_) {}
     return res.status(500).json({ success: false, message: e.message });
   }
