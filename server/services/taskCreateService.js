@@ -1386,14 +1386,13 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   const latestConfig = await loadConfig();
   const grinderOutputs = buildAvailableGrinderOutputPositions(latestConfig.grinders || []);
   const outRows = getAvailableOutstockerLoadRows(latestConfig.outstockerSides || {});
-  const nonBypassGrinderCount = (latestConfig.grinders || []).filter((g) => {
-    const bypassId = normalizeText(g?.bypass_id);
-    return !bypassId || !isSignalOn(bypassId);
-  }).length;
-  const maxCount = Math.min(6, grinderOutputs.length, outRows.length, nonBypassGrinderCount);
+  // NOTE:
+  // - bypass는 "연마기 단위"로 적용되며, buildAvailableGrinderOutputPositions()에서 이미 bypass ON인 연마기는 제외됨
+  // - 픽업 가능한 개수는 "연마기 수"가 아니라 "포지션(L/R) 수" 기준이어야 함
+  const maxCount = Math.min(6, grinderOutputs.length, outRows.length);
   if (!maxCount) return;
   s2log(
-    `조건 OK: grinderOutputs=${grinderOutputs.length}, outRows=${outRows.length}, nonBypassGrinders=${nonBypassGrinderCount} → maxCount=${maxCount}`
+    `조건 OK: grinderOutputs(포지션)=${grinderOutputs.length}, outRows=${outRows.length} → maxCount=${maxCount}`
   );
 
   const robotSlots = safeParse(robot.slots, []);
