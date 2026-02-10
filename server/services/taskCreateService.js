@@ -1338,17 +1338,30 @@ async function createTaskForConveyors(conveyorRequests, config, activeTasks) {
 }
 
 async function createTaskForGrinderOutput(config, activeTasks) {
+  const s2log = (msg) => console.log(`[TaskCreate][S2] ${msg}`);
   const robot = await Robot.findOne({ where: { name: "M500-S-02" } });
-  if (!robot) return;
-  if (isChargingBlocked(robot, config)) return;
+  if (!robot) {
+    s2log("스킵: M500-S-02 로봇 없음");
+    return;
+  }
+  if (isChargingBlocked(robot, config)) {
+    s2log(`스킵: 충전중/미완료 차단 (battery=${robot.battery ?? "-"})`);
+    return;
+  }
 
   let tasks = activeTasks || (await getActiveTasks());
-  if (tasks.length) return;
+  if (tasks.length) {
+    s2log(`스킵: 이미 활성 태스크 존재 (${tasks.length}개)`);
+    return;
+  }
 
   const existingTask = await Task.findOne({
     where: { robot_id: robot.id, status: ["PENDING", "RUNNING", "PAUSED"] },
   });
-  if (existingTask) return;
+  if (existingTask) {
+    s2log(`스킵: 로봇 기존 태스크 진행중 (Task#${existingTask.id}, ${existingTask.status})`);
+    return;
+  }
 
   const initialOutputs = buildAvailableGrinderOutputPositions(config.grinders || []);
   const initialOutRows = getAvailableOutstockerLoadRows(config.outstockerSides || {});
@@ -1356,13 +1369,19 @@ async function createTaskForGrinderOutput(config, activeTasks) {
 
   const waitMs = Math.max(0, Number(config.grinder_wait_ms ?? 0));
   if (waitMs > 0) {
-    //console.log(`[TaskCreate] 시나리오2: 연마기 배출 대기 ${waitMs}ms`);
+    s2log(`연마기 배출 대기 ${waitMs}ms`);
     await sleep(waitMs);
   }
-  if (isChargingBlocked(robot, config)) return;
+  if (isChargingBlocked(robot, config)) {
+    s2log(`스킵: 대기 후 충전 차단 (battery=${robot.battery ?? "-"})`);
+    return;
+  }
 
   tasks = await getActiveTasks();
-  if (tasks.length) return;
+  if (tasks.length) {
+    s2log(`스킵: 대기 후 활성 태스크 생김 (${tasks.length}개)`);
+    return;
+  }
 
   const latestConfig = await loadConfig();
   const grinderOutputs = buildAvailableGrinderOutputPositions(latestConfig.grinders || []);
@@ -1373,6 +1392,9 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   }).length;
   const maxCount = Math.min(6, grinderOutputs.length, outRows.length, nonBypassGrinderCount);
   if (!maxCount) return;
+  s2log(
+    `조건 OK: grinderOutputs=${grinderOutputs.length}, outRows=${outRows.length}, nonBypassGrinders=${nonBypassGrinderCount} → maxCount=${maxCount}`
+  );
 
   const robotSlots = safeParse(robot.slots, []);
   const slotNos = robotSlots
@@ -1381,11 +1403,13 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     .sort((a, b) => a - b);
 
   if (slotNos.length < maxCount) {
-    //console.warn(`[TaskCreate] 시나리오2: AMR 슬롯 부족 (필요: ${maxCount}, 보유: ${slotNos.length})`);
+    s2log(`스킵: AMR 슬롯 부족 (필요 ${maxCount} / 보유 ${slotNos.length})`);
     return;
   }
 
   const loadOrder = buildPreferredAmrSlotOrder(slotNos);
+  const loadOrderUsed = loadOrder.slice(0, maxCount);
+  s2log(`AMR 슬롯 적재 순서: ${loadOrderUsed.join(" → ")}`);
 
   const outputsSorted = [...grinderOutputs].sort((a, b) => {
     if (a.grinderIndex !== b.grinderIndex) return b.grinderIndex - a.grinderIndex; // 위에서부터(높은 번호)
@@ -1394,12 +1418,22 @@ async function createTaskForGrinderOutput(config, activeTasks) {
 
   const selectedOutputs = outputsSorted.slice(0, maxCount);
   const selectedOutRows = outRows.slice(0, maxCount);
+  s2log(
+    `선택된 연마기 배출: ${selectedOutputs
+      .map((o) => `G${o.grinderIndex}-${o.position}@${o.station}(mani:${o.mani_pos})`)
+      .join(", ")}`
+  );
+  s2log(
+    `선택된 아웃스토커 적재: ${selectedOutRows
+      .map((r) => `${r.side}-R${r.row}@${r.amr_pos}(mani:${r.mani_pos})`)
+      .join(", ")}`
+  );
 
-  const loadOrderUsed = loadOrder.slice(0, maxCount);
   const pairs = selectedOutputs.map((output, idx) => ({
     output,
     amrSlotNo: loadOrderUsed[idx],
   }));
+  s2log(`연마기→AMR 매핑: ${pairs.map((p) => `G${p.output.grinderIndex}-${p.output.position}→AMR#${p.amrSlotNo}`).join(", ")}`);
 
   const steps = [];
 
@@ -1470,6 +1504,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
 
   // PHASE 2: 아웃스토커 적재 (AMR 적재의 역순으로 하역)
   const unloadOrder = [...loadOrderUsed].reverse();
+  s2log(`AMR→아웃스토커 하역 순서(역순): ${unloadOrder.join(" → ")}`);
   const orderIndex = new Map(unloadOrder.map((slotNo, idx) => [slotNo, idx]));
   const sortedForUnload = [...pairs].sort((a, b) => {
     const aIdx = orderIndex.get(a.amrSlotNo) ?? 0;
@@ -1481,6 +1516,11 @@ async function createTaskForGrinderOutput(config, activeTasks) {
   sortedForUnload.forEach((pair, idx) => {
     pair.outRow = selectedOutRows[idx];
   });
+  s2log(
+    `AMR→아웃스토커 매핑: ${sortedForUnload
+      .map((p) => `AMR#${p.amrSlotNo}→${p.outRow.side}-R${p.outRow.row}`)
+      .join(", ")}`
+  );
 
   let lastOutAmrPos = null;
   let lastOutVisionAmrPos = null;
@@ -1595,6 +1635,7 @@ async function createTaskForGrinderOutput(config, activeTasks) {
     { include: [{ model: TaskStep, as: "steps" }] }
   );
 
+  s2log(`Task#${task.id} 생성 (steps=${steps.length})`);
   //console.log(`[TaskCreate] 연마기 → 아웃스토커: Task#${task.id} 발행 (시나리오2, ${steps.length} steps)`);
   const plcStatus = collectPlcStatusForScenario(2, config);
   const stepList = steps.map((s, i) => ({

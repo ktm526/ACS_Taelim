@@ -6,15 +6,41 @@ require('dotenv').config();
 const LOG_MODE = process.env.LOG_MODE || "amr_plc_only";
 if (LOG_MODE === "amr_plc_only") {
   const keepError = process.env.LOG_KEEP_ERRORS !== "0";
+  const origLog = console.log.bind(console);
+  const origInfo = console.info.bind(console);
+  const origWarn = console.warn.bind(console);
+  const origError = console.error.bind(console);
+
+  // 허용 로그: 시나리오2 생성 과정 디버그용
+  const allowPrefixes = [
+    "[TaskCreate][S2]",
+    "[TaskCreate] 시나리오2",
+    "[TaskCreate] 시나리오 2",
+  ];
+  const shouldAllow = (args) => {
+    const first = args?.[0];
+    if (typeof first !== "string") return false;
+    return allowPrefixes.some((p) => first.startsWith(p));
+  };
+
   // eslint-disable-next-line no-global-assign
-  console.log = () => {};
+  console.log = (...args) => {
+    if (shouldAllow(args)) origLog(...args);
+  };
   // eslint-disable-next-line no-global-assign
-  console.info = () => {};
+  console.info = (...args) => {
+    if (shouldAllow(args)) origInfo(...args);
+  };
   // eslint-disable-next-line no-global-assign
-  console.warn = () => {};
+  console.warn = (...args) => {
+    if (shouldAllow(args)) origWarn(...args);
+  };
   if (!keepError) {
     // eslint-disable-next-line no-global-assign
     console.error = () => {};
+  } else {
+    // eslint-disable-next-line no-global-assign
+    console.error = (...args) => origError(...args);
   }
 }
 
