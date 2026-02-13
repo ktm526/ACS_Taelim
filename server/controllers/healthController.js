@@ -7,6 +7,7 @@ const DeviceInStocker = require('../models/DeviceInStocker');
 const DeviceGrinder = require('../models/DeviceGrinder');
 const DeviceOutStocker = require('../models/DeviceOutStocker');
 const DeviceConveyor = require('../models/DeviceConveyor');
+const systemMetrics = require('../services/systemMetricsService');
 
 const SLOT_SIDES = ['L', 'R'];
 const SLOT_INDEXES = [1, 2, 3, 4, 5, 6];
@@ -215,5 +216,47 @@ exports.reconnectSignal = async (req, res) => {
     } catch (e) {
         console.error(e);
         res.status(500).json({ message: '재연결 실패' });
+    }
+};
+
+/**
+ * GET /api/health/system-metrics/latest
+ */
+exports.getSystemMetricsLatest = (req, res) => {
+    try {
+        const latest = systemMetrics.getLatest();
+        return res.json({
+            success: true,
+            data: latest,
+            meta: {
+                sample_ms: systemMetrics.SAMPLE_MS,
+                retain_hours: systemMetrics.RETAIN_HOURS,
+            },
+        });
+    } catch (e) {
+        console.error('[Health.getSystemMetricsLatest]', e);
+        return res.status(500).json({ success: false, message: e.message });
+    }
+};
+
+/**
+ * GET /api/health/system-metrics?hours=24
+ */
+exports.getSystemMetricsHistory = (req, res) => {
+    try {
+        const hours = Number(req.query?.hours || 24);
+        const rows = systemMetrics.getHistory({ hours });
+        return res.json({
+            success: true,
+            data: rows,
+            meta: {
+                sample_ms: systemMetrics.SAMPLE_MS,
+                retain_hours: systemMetrics.RETAIN_HOURS,
+                points: rows.length,
+            },
+        });
+    } catch (e) {
+        console.error('[Health.getSystemMetricsHistory]', e);
+        return res.status(500).json({ success: false, message: e.message });
     }
 };

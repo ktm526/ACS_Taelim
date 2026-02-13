@@ -4,6 +4,37 @@ import { ReloadOutlined, PlayCircleOutlined, StopOutlined } from "@ant-design/ic
 import { useQuery } from "@tanstack/react-query";
 import { useApiClient } from "@/hooks/useApiClient";
 
+function formatBps(v) {
+  if (v == null || Number.isNaN(Number(v))) return "-";
+  const n = Number(v);
+  if (n < 1024) return `${n} B/s`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB/s`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB/s`;
+}
+
+function Sparkline({ data, color = "#1677ff", min = null, max = null, height = 60 }) {
+  const width = 360;
+  const nums = (data || []).map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  if (!nums.length) {
+    return <div style={{ height, fontSize: 12, color: "#999" }}>데이터 없음</div>;
+  }
+  const lo = min != null ? min : Math.min(...nums);
+  const hiRaw = max != null ? max : Math.max(...nums);
+  const hi = hiRaw === lo ? lo + 1 : hiRaw;
+  const points = nums
+    .map((v, i) => {
+      const x = (i / Math.max(1, nums.length - 1)) * (width - 2) + 1;
+      const y = height - ((v - lo) / (hi - lo)) * (height - 8) - 4;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: "block" }}>
+      <polyline fill="none" stroke={color} strokeWidth="2" points={points} />
+    </svg>
+  );
+}
+
 export default function GeneralSettings() {
   const api = useApiClient();
   const [triggerLoading, setTriggerLoading] = useState(false);
@@ -31,6 +62,16 @@ export default function GeneralSettings() {
       return res.data;
     },
     refetchInterval: 1000,
+  });
+
+  const metricsQ = useQuery({
+    queryKey: ["system-metrics", 24],
+    queryFn: async () => {
+      const res = await api.get("/api/health/system-metrics?hours=24");
+      if (!res?.success) throw new Error(res?.message || "시스템 메트릭 조회 실패");
+      return res;
+    },
+    refetchInterval: 10000,
   });
 
   // TCP 테스트 상태 폴링
@@ -188,6 +229,92 @@ export default function GeneralSettings() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card
+        title="서버 안정성 모니터 (최근 24시간)"
+        bordered
+        extra={
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => metricsQ.refetch()}
+            disabled={metricsQ.isLoading}
+          >
+            새로고침
+          </Button>
+        }
+      >
+        {metricsQ.isLoading && <Spin tip="시스템 메트릭 로딩 중..." />}
+        {metricsQ.error && (
+          <Alert type="error" message="시스템 메트릭 조회 실패" description={metricsQ.error.message} />
+        )}
+        {metricsQ.data?.data?.length > 0 && (() => {
+          const rows = metricsQ.data.data;
+          const latest = rows[rows.length - 1] || {};
+          const cpuData = rows.map((r) => r.systemCpuPct).filter((v) => v != null);
+          const procCpuData = rows.map((r) => r.processCpuPct).filter((v) => v != null);
+          const memData = rows.map((r) => r.systemMemUsedPct).filter((v) => v != null);
+          const loopData = rows.map((r) => r.eventLoopLagMaxMs).filter((v) => v != null);
+          const rxData = rows.map((r) => r.netRxBps).filter((v) => v != null);
+          const txData = rows.map((r) => r.netTxBps).filter((v) => v != null);
+          return (
+            <div style={{ display: "grid", gap: 12 }}>
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label="업타임">
+                  {latest.uptimeSec != null ? `${Math.floor(latest.uptimeSec / 3600)}h ${Math.floor((latest.uptimeSec % 3600) / 60)}m` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="샘플 간격">
+                  {metricsQ.data?.meta?.sample_ms != null ? `${metricsQ.data.meta.sample_ms} ms` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="시스템 CPU">
+                  {latest.systemCpuPct != null ? `${latest.systemCpuPct.toFixed(1)} %` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="프로세스 CPU">
+                  {latest.processCpuPct != null ? `${latest.processCpuPct.toFixed(1)} %` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="시스템 메모리 사용률">
+                  {latest.systemMemUsedPct != null ? `${latest.systemMemUsedPct.toFixed(1)} %` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="프로세스 메모리 (RSS)">
+                  {latest.processMemMb != null ? `${latest.processMemMb} MB` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Event Loop Lag (max)">
+                  {latest.eventLoopLagMaxMs != null ? `${latest.eventLoopLagMaxMs.toFixed(2)} ms` : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Active Handles / Requests">
+                  {`${latest.activeHandles ?? "-"} / ${latest.activeRequests ?? "-"}`}
+                </Descriptions.Item>
+                <Descriptions.Item label="네트워크 Rx">
+                  {formatBps(latest.netRxBps)}
+                </Descriptions.Item>
+                <Descriptions.Item label="네트워크 Tx">
+                  {formatBps(latest.netTxBps)}
+                </Descriptions.Item>
+              </Descriptions>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Card size="small" title="시스템 CPU(%)">
+                  <Sparkline data={cpuData} min={0} max={100} color="#1677ff" />
+                </Card>
+                <Card size="small" title="프로세스 CPU(%)">
+                  <Sparkline data={procCpuData} min={0} max={100} color="#13c2c2" />
+                </Card>
+                <Card size="small" title="시스템 메모리 사용률(%)">
+                  <Sparkline data={memData} min={0} max={100} color="#722ed1" />
+                </Card>
+                <Card size="small" title="Event Loop Lag Max (ms)">
+                  <Sparkline data={loopData} color="#fa8c16" />
+                </Card>
+                <Card size="small" title="네트워크 Rx (B/s)">
+                  <Sparkline data={rxData} color="#52c41a" />
+                </Card>
+                <Card size="small" title="네트워크 Tx (B/s)">
+                  <Sparkline data={txData} color="#eb2f96" />
+                </Card>
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
       <Card
         title="설정값(PLC→DB)"
         bordered
