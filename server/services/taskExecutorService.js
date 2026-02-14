@@ -122,7 +122,13 @@ async function writePlc(id, value) {
   if (!parsed) throw new Error(`invalid plc id: ${id}`);
   const client = new ModbusRTU();
   client.setTimeout(2000);
-  await client.connectTCP(HOST, { port: PORT });
+  try {
+    await client.connectTCP(HOST, { port: PORT });
+  } catch (e) {
+    console.error(`[Executor] PLC 연결 실패 (writePlc ${id}):`, e?.message || e);
+    try { client.close(() => {}); } catch {}
+    throw new Error(`PLC 연결 실패: ${e?.message || e}`);
+  }
   client.setID(UNIT_ID);
   try {
     if (parsed.type === "bit") {

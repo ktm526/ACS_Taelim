@@ -45,15 +45,16 @@ async function ensureSingleton() {
 }
 
 async function ensureConnected() {
-  // modbus-serial은 연결 여부를 외부로 명확히 노출하지 않아서,
-  // 단순히 connect를 시도하고 실패 시 재시도하는 방식으로 운영.
   if (connecting) return false;
   connecting = true;
   try {
+    // 기존 연결 정리 후 재연결
+    try { client.close(() => {}); } catch {}
     await client.connectTCP(HOST, { port: PORT });
     client.setID(UNIT_ID);
     return true;
   } catch (e) {
+    console.warn("[SettingsService] PLC 연결 실패:", e?.message || e);
     return false;
   } finally {
     connecting = false;

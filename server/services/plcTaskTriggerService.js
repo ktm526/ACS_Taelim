@@ -171,7 +171,14 @@ async function writeSignals({ side = "ALL", value = 1 } = {}) {
 
   const client = new ModbusRTU();
   client.setTimeout(1500);
-  await client.connectTCP(HOST, { port: PORT });
+
+  try {
+    await client.connectTCP(HOST, { port: PORT });
+  } catch (e) {
+    console.error("[PLC Trigger] PLC 연결 실패:", e?.message || e);
+    try { client.close(() => {}); } catch {}
+    return { success: false, message: `PLC 연결 실패: ${e?.message || e}`, written: [] };
+  }
   client.setID(UNIT_ID);
 
   try {

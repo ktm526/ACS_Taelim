@@ -112,6 +112,8 @@ async function ensureConnected() {
   if (connecting) return false;
   connecting = true;
   try {
+    // 기존 소켓 정리 후 재연결
+    try { client.close(() => {}); } catch {}
     await client.connectTCP(HOST, { port: PORT });
     client.setID(UNIT_ID);
     state.connected = true;

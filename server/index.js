@@ -230,6 +230,22 @@ app.use(express.static(path.join(__dirname, 'dist')));
   }
 })();
 
+/* ── 전역 에러 핸들러 (서버 크래시 방지) ─────────── */
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️  Unhandled Promise Rejection (서버 유지):', reason?.message || reason);
+  // 서버를 죽이지 않고 로그만 남김
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('⚠️  Uncaught Exception (서버 유지):', err?.message || err);
+  // 치명적이지 않은 에러(네트워크 타임아웃 등)는 서버를 유지
+  // 메모리 관련 등 심각한 에러면 종료
+  if (err?.code === 'ERR_OUT_OF_MEMORY' || err?.code === 'ERR_WORKER_OUT_OF_MEMORY') {
+    console.error('❌ 치명적 에러 → 서버 종료');
+    process.exit(1);
+  }
+});
+
 /* ── graceful shutdown ─────────────────────────── */
 process.on('SIGINT', () => { console.log('\nSIGINT'); process.exit(0); });
 process.on('SIGTERM', () => { console.log('\nSIGTERM'); process.exit(0); });

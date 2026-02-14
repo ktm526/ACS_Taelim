@@ -101,20 +101,26 @@ async function readPlcValue(plcId) {
   const connected = await ensurePlcConnected();
   if (!connected) return null;
 
-  const parts = String(plcId).split(".");
-  const wordAddr = parseInt(parts[0], 10);
-  if (isNaN(wordAddr)) return null;
+  try {
+    const parts = String(plcId).split(".");
+    const wordAddr = parseInt(parts[0], 10);
+    if (isNaN(wordAddr)) return null;
 
-  const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
-  const currentWord = currentData.data[0];
+    const currentData = await plcWriteClient.readHoldingRegisters(wordAddr, 1);
+    const currentWord = currentData.data[0];
 
-  if (parts.length === 2) {
-    const bitText = String(parts[1]).trim();
-    const bitIndex = /[a-f]/i.test(bitText) ? parseInt(bitText, 16) : parseInt(bitText, 10);
-    if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return null;
-    return (currentWord >> bitIndex) & 1;
+    if (parts.length === 2) {
+      const bitText = String(parts[1]).trim();
+      const bitIndex = /[a-f]/i.test(bitText) ? parseInt(bitText, 16) : parseInt(bitText, 10);
+      if (isNaN(bitIndex) || bitIndex < 0 || bitIndex > 15) return null;
+      return (currentWord >> bitIndex) & 1;
+    }
+    return currentWord;
+  } catch (e) {
+    console.warn(`[AMR-PLC] PLC 읽기 실패 (${plcId}): ${e?.message || e}`);
+    plcConnected = false; // 재연결 유도
+    return null;
   }
-  return currentWord;
 }
 
 // AMR 상태를 PLC에 기록 (500ms 쓰로틀링)
